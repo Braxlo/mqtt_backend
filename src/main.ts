@@ -13,7 +13,7 @@ async function bootstrap() {
   // Configuración global de CORS
   const corsOrigins = process.env.CORS_ORIGIN 
     ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
-    : ['http://localhost:3005', 'http://127.0.0.1:3005'];
+    : ['http://localhost:3007', 'http://127.0.0.1:3007'];
   
   app.enableCors({
     origin: (origin, callback) => {

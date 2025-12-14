@@ -29,7 +29,7 @@ JWT_SECRET=tu_secret_key_muy_segura_y_larga
 JWT_EXPIRES_IN=24h
 
 # CORS - Ajustar según tu frontend
-CORS_ORIGIN=http://192.168.2.185:3005
+CORS_ORIGIN=http://192.168.2.185:3007
 
 # Puerto y Host
 PORT=3006

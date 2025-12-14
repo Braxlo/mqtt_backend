@@ -25,7 +25,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-24h}
       # CORS
-      - CORS_ORIGIN=${CORS_ORIGIN:-http://192.168.2.185:3005}
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://192.168.2.185:3007}
     env_file:
       - .env
     networks:
