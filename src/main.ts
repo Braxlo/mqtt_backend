@@ -11,11 +11,32 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // Configuración global de CORS
+  const corsOrigins = process.env.CORS_ORIGIN 
+    ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+    : ['http://localhost:3005', 'http://127.0.0.1:3005'];
+  
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || '*',
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    origin: (origin, callback) => {
+      // Permitir requests sin origin (mobile apps, Postman, etc.)
+      if (!origin) return callback(null, true);
+      
+      // Permitir si está en la lista de orígenes permitidos
+      if (corsOrigins.includes(origin) || corsOrigins.includes('*')) {
+        callback(null, true);
+      } else {
+        // En desarrollo, permitir localhost con cualquier puerto
+        if (process.env.NODE_ENV !== 'production' && origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+          callback(null, true);
+        } else {
+          callback(new Error('No permitido por CORS'));
+        }
+      }
+    },
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    maxAge: 86400, // 24 horas
   });
 
   // Prefijo global para todas las rutas
@@ -37,10 +58,13 @@ async function bootstrap() {
     }),
   );
 
-  const port = process.env.PORT || 3001;
-  await app.listen(port);
+  const port = process.env.PORT || 3006;
+  const host = process.env.HOST || '0.0.0.0';
   
-  logger.log(`🚀 Backend corriendo en http://localhost:${port}`);
-  logger.log(`📡 API disponible en http://localhost:${port}/api`);
+  await app.listen(port, host);
+  
+  logger.log(`🚀 Backend corriendo en http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
+  logger.log(`📡 API disponible en http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/api`);
+  logger.log(`🌐 CORS habilitado para: ${corsOrigins.join(', ')}`);
 }
 bootstrap();
