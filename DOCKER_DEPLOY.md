@@ -1,6 +1,6 @@
 # Guía de Deploy con Dockploy
 
-## Configuración para el servidor 192.168.2.185
+## Configuración para el servidor 192.168.64.174
 
 ### Requisitos previos
 
@@ -16,7 +16,7 @@ Crea un archivo `.env` en el directorio `backend/` con las siguientes variables:
 
 ```env
 # Base de datos
-DB_HOST=192.168.2.185  # o la IP de tu servidor PostgreSQL
+DB_HOST=192.168.64.174  # o la IP de tu servidor PostgreSQL
 DB_PORT=5432
 DB_USERNAME=postgres
 DB_PASSWORD=tu_password_seguro
@@ -29,7 +29,7 @@ JWT_SECRET=tu_secret_key_muy_segura_y_larga
 JWT_EXPIRES_IN=24h
 
 # CORS - Ajustar según tu frontend
-CORS_ORIGIN=http://192.168.2.185:3007
+CORS_ORIGIN=http://192.168.64.174:3007
 
 # Puerto y Host
 PORT=3006
@@ -62,7 +62,7 @@ Si prefieres hacerlo manualmente desde el servidor:
 
 ```bash
 # 1. Conectarse al servidor
-ssh usuario@192.168.2.185
+ssh usuario@192.168.64.174
 
 # 2. Clonar o copiar el código
 cd /ruta/donde/quieres/el/proyecto
@@ -98,7 +98,7 @@ Una vez desplegado, verifica que el servicio esté corriendo:
 docker logs centinela-backend
 
 # Verificar salud
-curl http://192.168.2.185:3006/api/health
+curl http://192.168.64.174:3006/api/health
 
 # Ver contenedores corriendo
 docker ps
