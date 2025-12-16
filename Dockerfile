@@ -9,7 +9,7 @@ COPY tsconfig*.json ./
 COPY nest-cli.json ./
 
 # Instalar dependencias
-RUN npm ci
+RUN npm ci --no-audit --no-fund
 
 # Copiar código fuente
 COPY . .
@@ -30,7 +30,7 @@ RUN addgroup -g 1001 -S nodejs && \
 COPY package*.json ./
 
 # Instalar solo dependencias de producción
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci --only=production --no-audit --no-fund && npm cache clean --force
 
 # Copiar código compilado desde la etapa de build
 COPY --from=builder /app/dist ./dist
