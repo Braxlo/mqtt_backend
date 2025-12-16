@@ -16,7 +16,11 @@ import { APP_CONSTANTS } from '../common/constants/app.constants';
 @WSGateway({
   cors: {
     origin: '*',
+    credentials: true,
+    methods: ['GET', 'POST'],
   },
+  transports: ['websocket', 'polling'],
+  allowEIO3: true, // Compatibilidad con versiones anteriores
 })
 export class WebSocketGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect

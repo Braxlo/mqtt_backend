@@ -33,6 +33,7 @@ export class BarrerasService {
       urlCamara: b.urlCamara,
       comandoAbrir: b.comandoAbrir,
       comandoCerrar: b.comandoCerrar,
+      comandoEstado: b.comandoEstado,
     }));
   }
 
@@ -51,6 +52,7 @@ export class BarrerasService {
       urlCamara: barrera.urlCamara,
       comandoAbrir: barrera.comandoAbrir,
       comandoCerrar: barrera.comandoCerrar,
+      comandoEstado: barrera.comandoEstado,
     };
   }
 
@@ -72,6 +74,7 @@ export class BarrerasService {
       urlCamara: savedBarrera.urlCamara,
       comandoAbrir: savedBarrera.comandoAbrir,
       comandoCerrar: savedBarrera.comandoCerrar,
+      comandoEstado: savedBarrera.comandoEstado,
     };
   }
 
@@ -94,6 +97,7 @@ export class BarrerasService {
       urlCamara: updatedBarrera.urlCamara,
       comandoAbrir: updatedBarrera.comandoAbrir,
       comandoCerrar: updatedBarrera.comandoCerrar,
+      comandoEstado: updatedBarrera.comandoEstado,
     };
   }
 

@@ -64,6 +64,7 @@ Este documento describe todas las tablas que se crean automáticamente en la bas
   - `url_camara` (text): URL de la cámara para visualización
   - `comando_abrir` (text): Comando/trama para abrir la barrera
   - `comando_cerrar` (text): Comando/trama para cerrar la barrera
+  - `comando_estado` (text, nullable): Comando/trama para consultar el estado de la barrera
   - `created_at` (timestamp): Fecha de creación
   - `updated_at` (timestamp): Fecha de última actualización
 

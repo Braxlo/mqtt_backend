@@ -27,5 +27,12 @@ export class MqttMessage {
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
+
+  @Column({ type: 'int', nullable: true })
+  @Index()
+  userId: number | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  username: string | null;
 }
 

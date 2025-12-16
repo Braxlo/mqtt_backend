@@ -32,6 +32,9 @@ export class Barrera {
   @Column({ type: 'text', name: 'comando_cerrar' })
   comandoCerrar: string;
 
+  @Column({ type: 'text', name: 'comando_estado', nullable: true })
+  comandoEstado?: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

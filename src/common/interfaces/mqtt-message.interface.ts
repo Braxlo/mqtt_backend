@@ -5,6 +5,8 @@ export interface MqttMessage {
   topic: string;
   message: string;
   timestamp: Date;
+  userId?: number | null;
+  username?: string | null;
 }
 
 /**

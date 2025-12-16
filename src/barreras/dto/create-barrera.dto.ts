@@ -30,5 +30,10 @@ export class CreateBarreraDto {
   @IsNotEmpty({ message: 'El comando de cerrar es requerido' })
   @MinLength(1, { message: 'El comando de cerrar no puede estar vacío' })
   comandoCerrar: string;
+
+  @IsString({ message: 'El comando de estado debe ser una cadena de texto' })
+  @IsOptional()
+  @MinLength(1, { message: 'El comando de estado no puede estar vacío' })
+  comandoEstado?: string;
 }
 

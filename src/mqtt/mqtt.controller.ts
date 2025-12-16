@@ -11,7 +11,9 @@ import {
   Inject,
   forwardRef,
   UseGuards,
+  Request,
 } from '@nestjs/common';
+import type { Request as ExpressRequest } from 'express';
 import { MqttService } from './mqtt.service';
 import { ConnectBrokerDto } from './dto/connect-broker.dto';
 import { PublishMessageDto } from './dto/publish-message.dto';
@@ -127,8 +129,12 @@ export class MqttController {
   @UseGuards(RolesGuard)
   @Roles('admin')
   @HttpCode(HttpStatus.OK)
-  publish(@Body() publishDto: PublishMessageDto) {
-    const success = this.mqttService.publish(publishDto.topic, publishDto.message);
+  publish(@Body() publishDto: PublishMessageDto, @Request() req: ExpressRequest) {
+    const user = req['user'] as { username?: string; sub?: number } | undefined;
+    const userId = user?.sub || null;
+    const username = user?.username || null;
+    
+    const success = this.mqttService.publish(publishDto.topic, publishDto.message, userId, username);
     return {
       success,
       message: success

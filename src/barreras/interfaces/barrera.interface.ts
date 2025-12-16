@@ -8,5 +8,6 @@ export interface ConfiguracionBarrera {
   urlCamara: string; // URL de la cámara para visualización
   comandoAbrir: string; // Comando/trama para abrir la barrera
   comandoCerrar: string; // Comando/trama para cerrar la barrera
+  comandoEstado?: string; // Comando/trama para consultar el estado de la barrera
 }
 

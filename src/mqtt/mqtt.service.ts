@@ -120,10 +120,27 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         const messageStr = message.toString();
         const timestamp = new Date();
         
+        // Verificar si este mensaje fue publicado por un usuario (para evitar duplicados)
+        const messageKey = `${topic}|${messageStr}|${Math.floor(timestamp.getTime() / 5000) * 5000}`;
+        const publishedMessages = (this as any).publishedMessages || new Set();
+        
+        // Si el mensaje fue publicado por un usuario, ya se emitió con la información del usuario
+        // Solo procesar mensajes que vienen del broker (sin usuario)
+        const isPublishedByUser = Array.from(publishedMessages).some((key: string) => 
+          key.startsWith(`${topic}|${messageStr}|`)
+        );
+        
+        if (isPublishedByUser) {
+          this.logger.debug(`Mensaje ${topic} ya fue procesado (publicado por usuario), omitiendo duplicado`);
+          return;
+        }
+        
         const mqttMessage: MqttMessageInterface = {
           topic,
           message: messageStr,
           timestamp,
+          userId: null,
+          username: null,
         };
         this.logger.debug(`Mensaje recibido en ${topic}: ${messageStr}`);
         
@@ -133,6 +150,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
             topic,
             message: messageStr,
             timestamp,
+            userId: null,
+            username: null,
           });
           await this.mqttMessageRepository.save(messageEntity);
         } catch (error) {
@@ -314,18 +333,59 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  publish(topic: string, message: string): boolean {
+  publish(topic: string, message: string, userId?: number | null, username?: string | null): boolean {
     if (!this.client || !this.isConnected) {
       this.logger.warn('No hay conexión MQTT activa');
       return false;
     }
 
     try {
+      const timestamp = new Date();
+      
+      // Guardar mensaje en la base de datos con información del usuario
+      const messageEntity = this.mqttMessageRepository.create({
+        topic,
+        message,
+        timestamp,
+        userId: userId || null,
+        username: username || null,
+      });
+      
+      // Marcar este mensaje como publicado por un usuario para evitar duplicarlo cuando el broker lo reenvía
+      const publishedMessageKey = `${topic}|${message}|${timestamp.getTime()}`;
+      const publishedMessages = (this as any).publishedMessages || new Set();
+      publishedMessages.add(publishedMessageKey);
+      (this as any).publishedMessages = publishedMessages;
+      
+      // Limpiar la clave después de 5 segundos (tiempo suficiente para que el broker lo reenvíe)
+      setTimeout(() => {
+        publishedMessages.delete(publishedMessageKey);
+      }, 5000);
+      
+      this.mqttMessageRepository.save(messageEntity)
+        .then((savedMessage) => {
+          this.logger.log(`Mensaje guardado en BD: ${topic} por usuario ${username || 'desconocido'}`);
+          
+          // Emitir mensaje directamente al WebSocket con información del usuario
+          // Esto evita que el mensaje se duplique cuando el broker lo reenvía
+          const mqttMessage: MqttMessageInterface = {
+            topic,
+            message,
+            timestamp,
+            userId: savedMessage.userId || null,
+            username: savedMessage.username || null,
+          };
+          this.messageSubject.next(mqttMessage);
+        })
+        .catch((error) => {
+          this.logger.error(`Error al guardar mensaje publicado en BD: ${error.message}`);
+        });
+
       this.client.publish(topic, message, (err) => {
         if (err) {
           this.logger.error(`Error al publicar en ${topic}: ${err.message}`);
         } else {
-          this.logger.log(`Mensaje publicado en ${topic}: ${message}`);
+          this.logger.log(`Mensaje publicado en ${topic}: ${message} por usuario ${username || 'desconocido'}`);
         }
       });
       return true;
