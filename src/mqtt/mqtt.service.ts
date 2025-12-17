@@ -18,6 +18,88 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   private subscribedTopics = new Set<string>();
   public messageSubject = new Subject<MqttMessageInterface>();
 
+  /**
+   * Detecta si un mensaje contiene datos binarios (bytes no imprimibles)
+   */
+  private tieneDatosBinarios(buffer: Buffer): boolean {
+    for (let i = 0; i < buffer.length; i++) {
+      const byte = buffer[i];
+      // Detectar bytes no imprimibles (excepto espacios, tabs, newlines, carriage return)
+      if ((byte < 32 && byte !== 9 && byte !== 10 && byte !== 13) || byte > 126) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Encuentra el índice donde empiezan los datos binarios en el buffer
+   */
+  private encontrarInicioBinario(buffer: Buffer): number {
+    for (let i = 0; i < buffer.length; i++) {
+      const byte = buffer[i];
+      // Detectar bytes no imprimibles (excepto espacios, tabs, newlines, carriage return)
+      if ((byte < 32 && byte !== 9 && byte !== 10 && byte !== 13) || byte > 126) {
+        return i;
+      }
+    }
+    return -1; // No hay datos binarios
+  }
+
+  /**
+   * Procesa un mensaje MQTT: separa texto de datos binarios
+   * Si tiene datos binarios, guarda el texto normal y los binarios en Base64
+   * Si no, lo devuelve como string normal
+   */
+  private procesarMensajeParaBD(message: Buffer): string {
+    // Buscar dónde empiezan los datos binarios
+    const indiceBinario = this.encontrarInicioBinario(message);
+    
+    if (indiceBinario === -1) {
+      // No hay datos binarios, devolver como string normal
+      return message.toString('utf8');
+    }
+    
+    // Separar texto y datos binarios
+    const parteTexto = message.slice(0, indiceBinario).toString('utf8');
+    const parteBinaria = message.slice(indiceBinario);
+    
+    // Convertir solo la parte binaria a Base64
+    const base64Binario = parteBinaria.toString('base64');
+    
+    // Guardar como: "texto __BINARY_BASE64__base64"
+    return `${parteTexto}__BINARY_BASE64__${base64Binario}`;
+  }
+
+  /**
+   * Convierte un mensaje guardado en BD de vuelta a su formato original
+   * Si tiene __BINARY_BASE64__ en el mensaje, separa el texto y decodifica la parte binaria
+   */
+  private procesarMensajeDesdeBD(messageStr: string): string {
+    const indicePrefijo = messageStr.indexOf('__BINARY_BASE64__');
+    
+    if (indicePrefijo === -1) {
+      // No tiene datos binarios, devolver tal cual
+      return messageStr;
+    }
+    
+    // Separar texto y Base64
+    const parteTexto = messageStr.substring(0, indicePrefijo);
+    const base64 = messageStr.substring(indicePrefijo + '__BINARY_BASE64__'.length);
+    
+    try {
+      // Decodificar Base64 a buffer y luego a string binario
+      const buffer = Buffer.from(base64, 'base64');
+      const parteBinaria = buffer.toString('binary');
+      
+      // Concatenar texto + datos binarios
+      return parteTexto + parteBinaria;
+    } catch (error) {
+      this.logger.error(`Error al decodificar Base64: ${error.message}`);
+      return messageStr;
+    }
+  }
+
   constructor(
     @InjectRepository(MqttMessageEntity)
     private mqttMessageRepository: Repository<MqttMessageEntity>,
@@ -117,7 +199,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       });
 
       this.client.on('message', async (topic, message) => {
-        const messageStr = message.toString();
+        // Procesar mensaje: convertir a string para comparación y detección de duplicados
+        const messageStr = message.toString('utf8');
         const timestamp = new Date();
         
         // Verificar si este mensaje fue publicado por un usuario (para evitar duplicados)
@@ -135,20 +218,27 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           return;
         }
         
+        // Procesar mensaje para guardar en BD (convierte binarios a Base64)
+        const messageParaBD = this.procesarMensajeParaBD(message);
+        
+        // Para enviar al frontend, también usar Base64 si tiene datos binarios
+        // JSON no puede manejar bytes nulos, así que usamos Base64
+        const messageParaFrontend = this.procesarMensajeParaBD(message);
+        
         const mqttMessage: MqttMessageInterface = {
           topic,
-          message: messageStr,
+          message: messageParaFrontend, // Ya procesado (Base64 si es binario, string normal si no)
           timestamp,
           userId: null,
           username: null,
         };
-        this.logger.debug(`Mensaje recibido en ${topic}: ${messageStr}`);
+        this.logger.debug(`Mensaje recibido en ${topic}: ${messageStr.substring(0, 100)}${messageStr.length > 100 ? '...' : ''}`);
         
-        // Guardar mensaje en la base de datos
+        // Guardar mensaje en la base de datos (con datos binarios convertidos a Base64 si es necesario)
         try {
           const messageEntity = this.mqttMessageRepository.create({
             topic,
-            message: messageStr,
+            message: messageParaBD,
             timestamp,
             userId: null,
             username: null,
@@ -448,7 +538,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
       const [messages, total] = await queryBuilder.getManyAndCount();
 
-      return { messages, total };
+      // Procesar mensajes: convertir Base64 de vuelta a formato original
+      const processedMessages = messages.map((msg) => ({
+        ...msg,
+        message: this.procesarMensajeDesdeBD(msg.message),
+      }));
+
+      return { messages: processedMessages, total };
     } catch (error) {
       this.logger.error(`Error al obtener mensajes: ${error.message}`);
       throw error;

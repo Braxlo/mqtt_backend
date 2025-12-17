@@ -31,6 +31,19 @@ CREATE TABLE IF NOT EXISTS barreras (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Crear tabla de luminarias si no existe
+CREATE TABLE IF NOT EXISTS luminarias (
+  id VARCHAR(255) PRIMARY KEY,
+  nombre VARCHAR(255) NOT NULL,
+  topic VARCHAR(500) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices para luminarias
+CREATE INDEX IF NOT EXISTS idx_luminarias_nombre ON luminarias(nombre);
+CREATE INDEX IF NOT EXISTS idx_luminarias_topic ON luminarias(topic);
+
 -- Crear tabla de escenarios si no existe
 CREATE TABLE IF NOT EXISTS escenarios (
   id SERIAL PRIMARY KEY,

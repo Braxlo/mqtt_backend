@@ -6,12 +6,14 @@ import { MqttModule } from './mqtt/mqtt.module';
 import { WebSocketModule } from './websocket/websocket.module';
 import { AuthModule } from './auth/auth.module';
 import { BarrerasModule } from './barreras/barreras.module';
+import { LuminariasModule } from './luminarias/luminarias.module';
 import { EscenariosModule } from './escenarios/escenarios.module';
 import { UsersModule } from './users/users.module';
 import { HealthController } from './common/controllers/health.controller';
 import {
   User,
   Barrera,
+  Luminaria,
   Escenario,
   EscenarioTopic,
   MqttMessage,
@@ -51,7 +53,7 @@ import {
         username: configService.get<string>('DB_USERNAME', 'postgres'),
         password: configService.get<string>('DB_PASSWORD', ''),
         database: configService.get<string>('DB_NAME', 'mqtt_centinela'),
-        entities: [User, Barrera, Escenario, EscenarioTopic, MqttMessage, MqttSubscribedTopic, MqttConfig],
+        entities: [User, Barrera, Luminaria, Escenario, EscenarioTopic, MqttMessage, MqttSubscribedTopic, MqttConfig],
           synchronize,
         logging: configService.get<boolean>('DB_LOGGING', false),
         };
@@ -62,6 +64,7 @@ import {
     WebSocketModule,
     AuthModule,
     BarrerasModule,
+    LuminariasModule,
     EscenariosModule,
     UsersModule,
   ],
