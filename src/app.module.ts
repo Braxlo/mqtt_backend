@@ -20,6 +20,7 @@ import {
   MqttSubscribedTopic,
   MqttConfig,
 } from './entities';
+import { Repository } from 'typeorm';
 
 /**
  * Módulo principal de la aplicación
@@ -115,10 +116,53 @@ export class AppModule implements OnModuleInit {
           this.logger.warn('   Las nuevas columnas NO se agregarán automáticamente');
           this.logger.warn('   Ejecuta el script init-database.sql para actualizar manualmente');
         }
+
+        // Crear usuario administrador por defecto si no existe
+        await this.ensureAdminUser();
       }
     } catch (error) {
       this.logger.error('❌ Error al inicializar la base de datos:', error.message);
       this.logger.error('   Stack:', error.stack);
+    }
+  }
+
+  /**
+   * Asegura que exista un usuario administrador por defecto
+   * Se ejecuta automáticamente al iniciar la aplicación
+   */
+  private async ensureAdminUser() {
+    try {
+      const userRepository: Repository<User> = this.dataSource.getRepository(User);
+      
+      // Verificar si ya existe un administrador
+      const existingAdmin = await userRepository.findOne({
+        where: { rol: 'Administrador' },
+      });
+
+      if (existingAdmin) {
+        this.logger.log('✅ Usuario administrador ya existe en la base de datos');
+        this.logger.log(`   Username: ${existingAdmin.username}`);
+        return;
+      }
+
+      // Crear usuario administrador por defecto
+      const admin = userRepository.create({
+        nombre: 'Administrador',
+        email: 'admin@centinela.com',
+        username: 'admin',
+        password: 'admin123', // ⚠️ En producción, esto debería estar hasheado
+        rol: 'Administrador',
+      });
+
+      await userRepository.save(admin);
+      this.logger.log('✅ Usuario administrador creado automáticamente');
+      this.logger.log('   Username: admin');
+      this.logger.log('   Email: admin@centinela.com');
+      this.logger.log('   Password: admin123');
+      this.logger.warn('⚠️  IMPORTANTE: Cambia la contraseña después del primer inicio de sesión');
+    } catch (error) {
+      this.logger.error('❌ Error al crear usuario administrador:', error.message);
+      // No lanzamos el error para que la aplicación pueda continuar iniciando
     }
   }
 }

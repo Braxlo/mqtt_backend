@@ -1,10 +1,22 @@
 # Crear Usuario Administrador
 
+## ⚡ Creación Automática
+
+**¡Buenas noticias!** El usuario administrador se crea **automáticamente** cuando la aplicación inicia por primera vez. Si no existe un usuario con rol "Administrador", se creará uno con las siguientes credenciales:
+
+- **Username:** `admin`
+- **Password:** `admin123`
+- **Email:** `admin@centinela.com`
+
+Esto sucede cada vez que el backend inicia y verifica que no exista un administrador en la base de datos.
+
 ## Problema
 
-Si recibes un error 401 al intentar hacer login, probablemente no hay usuarios en la base de datos.
+Si recibes un error 401 al intentar hacer login, probablemente no hay usuarios en la base de datos o hubo un error durante la creación automática.
 
-## Solución: Crear Usuario Administrador
+## Solución Manual: Crear Usuario Administrador
+
+Si por alguna razón el usuario no se creó automáticamente, puedes crearlo manualmente usando una de las siguientes opciones:
 
 ### Opción 1: Desde el Contenedor Docker (Recomendado)
 
@@ -78,7 +90,7 @@ SELECT id, nombre, email, username, rol FROM users;
 Si el backend tiene un endpoint para crear usuarios (y está configurado para permitir creación sin autenticación), puedes usar:
 
 ```bash
-curl -X POST http://192.168.2.185:3006/api/users \
+curl -X POST http://2.136.50.216:3006/api/users \
   -H "Content-Type: application/json" \
   -d '{
     "nombre": "Administrador",
