@@ -35,5 +35,9 @@ export class CreateBarreraDto {
   @IsOptional()
   @MinLength(1, { message: 'El comando de estado no puede estar vacío' })
   comandoEstado?: string;
+
+  @IsString({ message: 'La función debe ser una cadena de texto' })
+  @IsOptional()
+  funcion?: 'entrada' | 'salida' | 'ambas';
 }
 

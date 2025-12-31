@@ -35,6 +35,9 @@ export class Barrera {
   @Column({ type: 'text', name: 'comando_estado', nullable: true })
   comandoEstado?: string;
 
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  funcion?: 'entrada' | 'salida' | 'ambas';
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

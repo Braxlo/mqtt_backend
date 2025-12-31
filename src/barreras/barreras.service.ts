@@ -34,6 +34,7 @@ export class BarrerasService {
       comandoAbrir: b.comandoAbrir,
       comandoCerrar: b.comandoCerrar,
       comandoEstado: b.comandoEstado,
+      funcion: b.funcion,
     }));
   }
 
@@ -53,6 +54,7 @@ export class BarrerasService {
       comandoAbrir: barrera.comandoAbrir,
       comandoCerrar: barrera.comandoCerrar,
       comandoEstado: barrera.comandoEstado,
+      funcion: barrera.funcion,
     };
   }
 
@@ -75,6 +77,7 @@ export class BarrerasService {
       comandoAbrir: savedBarrera.comandoAbrir,
       comandoCerrar: savedBarrera.comandoCerrar,
       comandoEstado: savedBarrera.comandoEstado,
+      funcion: savedBarrera.funcion,
     };
   }
 
@@ -98,6 +101,7 @@ export class BarrerasService {
       comandoAbrir: updatedBarrera.comandoAbrir,
       comandoCerrar: updatedBarrera.comandoCerrar,
       comandoEstado: updatedBarrera.comandoEstado,
+      funcion: updatedBarrera.funcion,
     };
   }
 
