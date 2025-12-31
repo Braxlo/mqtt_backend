@@ -127,7 +127,7 @@ export class MqttController {
 
   @Post('publish')
   @UseGuards(RolesGuard)
-  @Roles('admin')
+  @Roles('admin', 'operador')
   @HttpCode(HttpStatus.OK)
   publish(@Body() publishDto: PublishMessageDto, @Request() req: ExpressRequest) {
     const user = req['user'] as { username?: string; sub?: number } | undefined;
