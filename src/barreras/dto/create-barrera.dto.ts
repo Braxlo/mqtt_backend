@@ -39,5 +39,12 @@ export class CreateBarreraDto {
   @IsString({ message: 'La función debe ser una cadena de texto' })
   @IsOptional()
   funcion?: 'entrada' | 'salida' | 'ambas';
+
+  @IsOptional()
+  orden?: number;
+
+  @IsString({ message: 'La categoría debe ser una cadena de texto' })
+  @IsOptional()
+  categoria?: 'chancado' | 'luminarias' | 'barreras' | 'otras_barreras' | 'otros' | 'prueba';
 }
 

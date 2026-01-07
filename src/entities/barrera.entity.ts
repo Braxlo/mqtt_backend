@@ -38,6 +38,12 @@ export class Barrera {
   @Column({ type: 'varchar', length: 20, nullable: true })
   funcion?: 'entrada' | 'salida' | 'ambas';
 
+  @Column({ type: 'integer', default: 0 })
+  orden: number;
+
+  @Column({ type: 'varchar', length: 50, nullable: true, default: 'otros' })
+  categoria?: 'chancado' | 'luminarias' | 'barreras' | 'otras_barreras' | 'otros' | 'prueba';
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

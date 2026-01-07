@@ -10,5 +10,7 @@ export interface ConfiguracionBarrera {
   comandoCerrar: string; // Comando/trama para cerrar la barrera
   comandoEstado?: string; // Comando/trama para consultar el estado de la barrera
   funcion?: 'entrada' | 'salida' | 'ambas'; // Función de la barrera: entrada, salida o ambas
+  orden?: number; // Orden de visualización
+  categoria?: 'chancado' | 'luminarias' | 'barreras' | 'otras_barreras' | 'otros' | 'prueba'; // Categoría de la barrera
 }
 

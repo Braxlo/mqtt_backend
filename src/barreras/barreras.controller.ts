@@ -13,6 +13,7 @@ import {
 import { BarrerasService } from './barreras.service';
 import { CreateBarreraDto } from './dto/create-barrera.dto';
 import { UpdateBarreraDto } from './dto/update-barrera.dto';
+import { UpdateOrderDto } from './dto/update-order.dto';
 import { ResponseUtil } from '../common/utils/response.util';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -54,6 +55,13 @@ export class BarrerasController {
   async remove(@Param('id') id: string) {
     await this.barrerasService.remove(id);
     return ResponseUtil.success(null, 'Barrera eliminada exitosamente');
+  }
+
+  @Post('orden')
+  @HttpCode(HttpStatus.OK)
+  async updateOrder(@Body() updateOrderDto: UpdateOrderDto) {
+    await this.barrerasService.updateOrder(updateOrderDto.barreras);
+    return ResponseUtil.success(null, 'Orden de barreras actualizado exitosamente');
   }
 }
 

@@ -24,7 +24,7 @@ export class BarrerasService {
    */
   async findAll(): Promise<ConfiguracionBarrera[]> {
     const barreras = await this.barreraRepository.find({
-      order: { createdAt: 'DESC' },
+      order: { orden: 'ASC', createdAt: 'DESC' },
     });
     return barreras.map((b) => ({
       id: b.id,
@@ -35,6 +35,8 @@ export class BarrerasService {
       comandoCerrar: b.comandoCerrar,
       comandoEstado: b.comandoEstado,
       funcion: b.funcion,
+      orden: b.orden,
+      categoria: b.categoria || 'otros',
     }));
   }
 
@@ -55,6 +57,8 @@ export class BarrerasService {
       comandoCerrar: barrera.comandoCerrar,
       comandoEstado: barrera.comandoEstado,
       funcion: barrera.funcion,
+      orden: barrera.orden,
+      categoria: barrera.categoria || 'otros',
     };
   }
 
@@ -78,6 +82,8 @@ export class BarrerasService {
       comandoCerrar: savedBarrera.comandoCerrar,
       comandoEstado: savedBarrera.comandoEstado,
       funcion: savedBarrera.funcion,
+      orden: savedBarrera.orden,
+      categoria: savedBarrera.categoria || 'otros',
     };
   }
 
@@ -102,7 +108,19 @@ export class BarrerasService {
       comandoCerrar: updatedBarrera.comandoCerrar,
       comandoEstado: updatedBarrera.comandoEstado,
       funcion: updatedBarrera.funcion,
+      orden: updatedBarrera.orden,
+      categoria: updatedBarrera.categoria || 'otros',
     };
+  }
+
+  /**
+   * Actualizar el orden de múltiples barreras
+   */
+  async updateOrder(barrerasOrden: { id: string; orden: number }[]): Promise<void> {
+    for (const { id, orden } of barrerasOrden) {
+      await this.barreraRepository.update(id, { orden });
+    }
+    this.logger.log(`Orden actualizado para ${barrerasOrden.length} barreras`);
   }
 
   /**
