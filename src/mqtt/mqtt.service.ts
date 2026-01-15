@@ -100,6 +100,161 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Detecta si un mensaje es una trama HSE del regulador de carga (luminaria)
+   */
+  private esTramaHSE(buffer: Buffer): boolean {
+    const messageStr = buffer.toString('utf8', 0, Math.min(20, buffer.length));
+    const patronHSE = /^HSE\s+\d{6}\s+\d{4}\s+/i;
+    return patronHSE.test(messageStr);
+  }
+
+  /**
+   * Convierte un valor hexadecimal (2 bytes = 4 caracteres hex) a un número decimal
+   * Aplica la fórmula: convertir 4 caracteres hex a decimal, luego dividir por 100
+   */
+  private convertirHexADecimal(hexAlto: string, hexBajo: string): number {
+    try {
+      const hexCompleto = hexAlto + hexBajo;
+      const valorDecimal = parseInt(hexCompleto, 16);
+      const valorFinal = valorDecimal / 100;
+      return Math.round(valorFinal * 100) / 100; // Redondear a 2 decimales
+    } catch (error) {
+      this.logger.error("Error al convertir hexadecimal:", error);
+      return 0;
+    }
+  }
+
+  /**
+   * Convierte un valor hexadecimal de 32 bits (4 bytes = 8 caracteres hex) a un número decimal
+   * Los 32 bits están divididos en High (4 chars) y Low (4 chars)
+   * Aplica la fórmula: (High * 65536 + Low) / 100
+   */
+  private convertirHex32BitsADecimal(hexHigh1: string, hexHigh2: string, hexLow1: string, hexLow2: string): number {
+    try {
+      const hexHigh = hexHigh1 + hexHigh2;
+      const hexLow = hexLow1 + hexLow2;
+      
+      const valorHigh = parseInt(hexHigh, 16);
+      const valorLow = parseInt(hexLow, 16);
+      
+      const valor32Bits = valorHigh * 65536 + valorLow;
+      const valorFinal = valor32Bits / 100;
+      return Math.round(valorFinal * 100) / 100; // Redondear a 2 decimales
+    } catch (error) {
+      this.logger.error("Error al convertir hexadecimal de 32 bits:", error);
+      return 0;
+    }
+  }
+
+  /**
+   * Parsea una trama HSE del regulador de carga y retorna los valores convertidos
+   * Formato: "HSE 260114 2353 " seguido de bytes binarios
+   * Orden: VS, CS, SW (32 bits), VB, CB, LV, LC, LP (32 bits)
+   */
+  private parsearTramaHSE(buffer: Buffer): any | null {
+    try {
+      const messageStr = buffer.toString('binary');
+      const cleaned = messageStr.trim();
+
+      if (!cleaned.toUpperCase().startsWith("HSE")) {
+        return null;
+      }
+
+      // Buscar el patrón HSE + fecha + hora + espacio
+      const patronHSE = /^HSE\s+(\d{6})\s+(\d{4})\s+/i;
+      const match = cleaned.match(patronHSE);
+      
+      if (!match) {
+        return null;
+      }
+
+      const fechaStr = match[1];
+      const horaStr = match[2];
+      const inicioDatos = match[0].length;
+
+      // Formatear fecha (DDMMYY)
+      const fecha = fechaStr.length === 6
+        ? `${fechaStr.substring(0, 2)}/${fechaStr.substring(2, 4)}/${fechaStr.substring(4, 6)}`
+        : fechaStr;
+
+      // Formatear hora (HHMM)
+      const hora = horaStr.length === 4
+        ? `${horaStr.substring(0, 2)}:${horaStr.substring(2, 4)}`
+        : horaStr;
+
+      // Extraer bytes binarios desde el inicio de los datos
+      const bytes: number[] = [];
+      for (let i = inicioDatos; i < buffer.length; i++) {
+        bytes.push(buffer[i]);
+      }
+
+      if (bytes.length < 20) {
+        this.logger.warn(`Trama HSE incompleta: solo ${bytes.length} bytes`);
+        return null;
+      }
+
+      const hexValues = bytes.map(b => b.toString(16).padStart(2, '0').toUpperCase());
+
+      const datos: any = {
+        fecha,
+        hora,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Byte 0-1: VS [V] - Voltaje Solar
+      if (hexValues.length >= 2) {
+        datos.voltajeSolar = this.convertirHexADecimal(hexValues[0], hexValues[1]);
+      }
+
+      // Byte 2-3: CS [A] - Corriente Solar
+      if (hexValues.length >= 4) {
+        datos.corrienteSolar = this.convertirHexADecimal(hexValues[2], hexValues[3]);
+      }
+
+      // Byte 4-7: SW [W] - Potencia Solar (32 bits: High + Low)
+      if (hexValues.length >= 8) {
+        datos.potenciaSolar = this.convertirHex32BitsADecimal(
+          hexValues[4], hexValues[5],  // High
+          hexValues[6], hexValues[7]   // Low
+        );
+      }
+
+      // Byte 8-9: VB [V] - Voltaje Batería
+      if (hexValues.length >= 10) {
+        datos.voltajeBateria = this.convertirHexADecimal(hexValues[8], hexValues[9]);
+      }
+
+      // Byte 10-11: CB [A] - Corriente Batería
+      if (hexValues.length >= 12) {
+        datos.corrienteBateria = this.convertirHexADecimal(hexValues[10], hexValues[11]);
+      }
+
+      // Byte 12-13: LV [V] - Voltaje Cargas
+      if (hexValues.length >= 14) {
+        datos.voltajeCargas = this.convertirHexADecimal(hexValues[12], hexValues[13]);
+      }
+
+      // Byte 14-15: LC [A] - Corriente Cargas
+      if (hexValues.length >= 16) {
+        datos.corrienteCargas = this.convertirHexADecimal(hexValues[14], hexValues[15]);
+      }
+
+      // Byte 16-19: LP [W] - Potencia Cargas / Luminosidad (32 bits: High + Low)
+      if (hexValues.length >= 20) {
+        datos.potenciaCargas = this.convertirHex32BitsADecimal(
+          hexValues[16], hexValues[17],  // High
+          hexValues[18], hexValues[19]  // Low
+        );
+      }
+
+      return datos;
+    } catch (error) {
+      this.logger.error(`Error al parsear trama HSE: ${error.message}`);
+      return null;
+    }
+  }
+
   constructor(
     @InjectRepository(MqttMessageEntity)
     private mqttMessageRepository: Repository<MqttMessageEntity>,
@@ -234,7 +389,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         };
         this.logger.debug(`Mensaje recibido en ${topic}: ${messageStr.substring(0, 100)}${messageStr.length > 100 ? '...' : ''}`);
         
-        // Guardar mensaje en la base de datos (con datos binarios convertidos a Base64 si es necesario)
+        // Guardar mensaje original en la base de datos (con datos binarios convertidos a Base64 si es necesario)
         try {
           const messageEntity = this.mqttMessageRepository.create({
             topic,
@@ -246,6 +401,50 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           await this.mqttMessageRepository.save(messageEntity);
         } catch (error) {
           this.logger.error(`Error al guardar mensaje MQTT en BD: ${error.message}`);
+        }
+        
+        // Detectar si es una trama HSE de luminaria y procesar
+        if (this.esTramaHSE(message)) {
+          const datosConvertidos = this.parsearTramaHSE(message);
+          
+          if (datosConvertidos) {
+            // Crear tópico procesado: agregar "/procesado" al tópico original
+            const topicProcesado = `${topic}/procesado`;
+            
+            // Crear mensaje JSON con los valores convertidos
+            const mensajeProcesado = JSON.stringify(datosConvertidos);
+            
+            // Publicar en el tópico procesado (sin guardar en BD para evitar duplicados)
+            // Solo publicar si el cliente está conectado
+            if (this.client && this.isConnected) {
+              try {
+                this.client.publish(topicProcesado, mensajeProcesado, { qos: 0 }, (err) => {
+                  if (err) {
+                    this.logger.error(`Error al publicar mensaje procesado en ${topicProcesado}: ${err.message}`);
+                  } else {
+                    this.logger.debug(`Mensaje procesado publicado en ${topicProcesado}`);
+                  }
+                });
+                
+                // Guardar mensaje procesado en BD
+                try {
+                  const messageEntityProcesado = this.mqttMessageRepository.create({
+                    topic: topicProcesado,
+                    message: mensajeProcesado,
+                    timestamp,
+                    userId: null,
+                    username: null,
+                  });
+                  await this.mqttMessageRepository.save(messageEntityProcesado);
+                  this.logger.debug(`Mensaje procesado guardado en BD: ${topicProcesado}`);
+                } catch (error) {
+                  this.logger.error(`Error al guardar mensaje procesado en BD: ${error.message}`);
+                }
+              } catch (error) {
+                this.logger.error(`Error al procesar trama HSE: ${error.message}`);
+              }
+            }
+          }
         }
         
         // Emitir mensaje a través del Subject
