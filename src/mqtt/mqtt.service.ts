@@ -346,6 +346,12 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     this.logger.log('MqttService inicializado');
     // Intentar conectar automáticamente si hay configuración guardada
     await this.autoConnect();
+    
+    // Limpiar automáticamente topics /procesado que no son de luminarias al iniciar
+    // Esto se ejecuta en segundo plano sin bloquear la inicialización
+    this.limpiarTopicsProcesadoNoLuminarias().catch((error) => {
+      this.logger.warn(`Error al limpiar topics procesado al iniciar: ${error.message}`);
+    });
   }
 
   /**
@@ -432,9 +438,30 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       });
 
       this.client.on('message', async (topic, message) => {
-        // Ignorar mensajes de topics que ya terminan en /procesado (evitar procesar los procesados)
+        // Si se recibe un mensaje en un topic /procesado, verificar si es de luminaria
+        // Si no es de luminaria, ignorarlo y eliminar cualquier mensaje existente de ese topic
         if (topic.endsWith('/procesado')) {
-          return;
+          const topicBase = topic.replace('/procesado', '');
+          const esLuminaria = await this.esTopicLuminaria(topicBase);
+          if (!esLuminaria) {
+            // No es de luminaria, eliminar todos los mensajes de este topic y no procesar
+            this.logger.warn(`⚠️ Mensaje recibido en topic procesado no luminaria: ${topic}. Eliminando mensajes existentes...`);
+            try {
+              const resultado = await this.mqttMessageRepository
+                .createQueryBuilder()
+                .delete()
+                .where('topic = :topic', { topic })
+                .execute();
+              const eliminados = resultado.affected || 0;
+              if (eliminados > 0) {
+                this.logger.log(`Eliminados ${eliminados} mensajes del topic ${topic} (no es luminaria)`);
+              }
+            } catch (error) {
+              this.logger.error(`Error al eliminar mensajes procesados no luminaria: ${error.message}`);
+            }
+            return; // No procesar ni guardar este mensaje
+          }
+          // Si es de luminaria, continuar con el procesamiento normal
         }
         // Procesar mensaje: convertir a string para comparación y detección de duplicados
         const messageStr = message.toString('utf8');
