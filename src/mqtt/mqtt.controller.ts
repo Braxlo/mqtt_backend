@@ -4,6 +4,7 @@ import {
   Get,
   Body,
   Delete,
+  Put,
   Param,
   Query,
   HttpCode,
@@ -87,7 +88,7 @@ export class MqttController {
   @Roles('admin')
   @HttpCode(HttpStatus.OK)
   async subscribe(@Body() subscribeDto: SubscribeTopicDto) {
-    const success = await this.mqttService.subscribe(subscribeDto.topic);
+    const success = await this.mqttService.subscribe(subscribeDto.topic, subscribeDto.categoria);
     
     // Notificar cambio de topics a todos los clientes WebSocket
     if (success) {
@@ -95,8 +96,8 @@ export class MqttController {
         this.wsGateway.emitStatusUpdate();
       }, 100);
       return ResponseUtil.success(
-        { topic: subscribeDto.topic },
-        `Suscrito al topic: ${subscribeDto.topic}`,
+        { topic: subscribeDto.topic, categoria: subscribeDto.categoria },
+        `Suscrito al topic: ${subscribeDto.topic}${subscribeDto.categoria ? ` (categoría: ${subscribeDto.categoria})` : ''}`,
       );
     }
     
@@ -123,6 +124,27 @@ export class MqttController {
     }
     
     return ResponseUtil.error('Error al desuscribirse del topic');
+  }
+
+  @Put('subscribe/:topic/category')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @HttpCode(HttpStatus.OK)
+  async updateTopicCategory(
+    @Param('topic') topic: string,
+    @Body() body: { categoria: 'chancado' | 'luminarias' | 'barreras' | 'otras_barreras' | 'otros' | 'prueba' },
+  ) {
+    const decodedTopic = decodeURIComponent(topic);
+    const success = await this.mqttService.updateTopicCategory(decodedTopic, body.categoria);
+    
+    if (success) {
+      return ResponseUtil.success(
+        { topic: decodedTopic, categoria: body.categoria },
+        `Categoría actualizada para el topic: ${decodedTopic}`,
+      );
+    }
+    
+    return ResponseUtil.error('Error al actualizar la categoría del topic');
   }
 
   @Post('publish')

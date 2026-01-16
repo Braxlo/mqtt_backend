@@ -7,6 +7,7 @@ import { MqttMessage as MqttMessageInterface, MqttConnectionStatus } from '../co
 import { MqttMessage as MqttMessageEntity } from '../entities/mqtt-message.entity';
 import { MqttSubscribedTopic } from '../entities/mqtt-subscribed-topic.entity';
 import { MqttConfig } from '../entities/mqtt-config.entity';
+import { Luminaria } from '../entities/luminaria.entity';
 import { APP_CONSTANTS } from '../common/constants/app.constants';
 
 @Injectable()
@@ -144,6 +145,45 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.error("Error al convertir hexadecimal de 32 bits:", error);
       return 0;
+    }
+  }
+
+  /**
+   * Verifica si un topic es de una luminaria (consultando la categoría en la base de datos)
+   */
+  private async esTopicLuminaria(topic: string): Promise<boolean> {
+    try {
+      // Primero verificar la categoría en mqtt_subscribed_topics
+      const subscribedTopic = await this.mqttSubscribedTopicRepository.findOne({
+        where: { topic },
+      });
+      
+      if (subscribedTopic) {
+        this.logger.debug(`Topic ${topic} encontrado en mqtt_subscribed_topics. Categoría: ${subscribedTopic.categoria || 'null'}`);
+        if (subscribedTopic.categoria === 'luminarias') {
+          this.logger.debug(`Topic ${topic} es de categoría 'luminarias'`);
+          return true;
+        }
+      } else {
+        this.logger.debug(`Topic ${topic} NO encontrado en mqtt_subscribed_topics`);
+      }
+      
+      // También verificar si está en la tabla de luminarias (para compatibilidad)
+      const luminaria = await this.luminariaRepository.findOne({
+        where: { topic },
+      });
+      
+      if (luminaria) {
+        this.logger.debug(`Topic ${topic} encontrado en tabla luminarias`);
+        return true;
+      } else {
+        this.logger.debug(`Topic ${topic} NO encontrado en tabla luminarias`);
+      }
+      
+      return false;
+    } catch (error) {
+      this.logger.error(`Error al verificar si topic es luminaria: ${error.message}`);
+      return false;
     }
   }
 
@@ -298,6 +338,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     private mqttSubscribedTopicRepository: Repository<MqttSubscribedTopic>,
     @InjectRepository(MqttConfig)
     private mqttConfigRepository: Repository<MqttConfig>,
+    @InjectRepository(Luminaria)
+    private luminariaRepository: Repository<Luminaria>,
   ) {}
 
   async onModuleInit() {
@@ -440,46 +482,56 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         }
         
         // Detectar si es una trama HSE de luminaria y procesar
+        // IMPORTANTE: Solo procesar si el topic es de una luminaria (no barreras u otros)
         if (this.esTramaHSE(message)) {
-          const datosConvertidos = this.parsearTramaHSE(message, topic);
+          // Verificar si el topic es de una luminaria consultando la base de datos
+          const esLuminaria = await this.esTopicLuminaria(topic);
           
-          if (datosConvertidos) {
-            // Crear tópico procesado: agregar "/procesado" al tópico original
-            const topicProcesado = `${topic}/procesado`;
+          if (esLuminaria) {
+            const datosConvertidos = this.parsearTramaHSE(message, topic);
             
-            // Crear mensaje JSON con los valores convertidos
-            const mensajeProcesado = JSON.stringify(datosConvertidos);
-            
-            // Publicar en el tópico procesado (sin guardar en BD para evitar duplicados)
-            // Solo publicar si el cliente está conectado
-            if (this.client && this.isConnected) {
-              try {
-                this.client.publish(topicProcesado, mensajeProcesado, { qos: 0 }, (err) => {
-                  if (err) {
-                    this.logger.error(`Error al publicar mensaje procesado en ${topicProcesado}: ${err.message}`);
-                  } else {
-                    this.logger.debug(`Mensaje procesado publicado en ${topicProcesado}`);
-                  }
-                });
-                
-                // Guardar mensaje procesado en BD
+            if (datosConvertidos) {
+              // Crear tópico procesado: agregar "/procesado" al tópico original
+              const topicProcesado = `${topic}/procesado`;
+              
+              // Crear mensaje JSON con los valores convertidos
+              const mensajeProcesado = JSON.stringify(datosConvertidos);
+              
+              // Publicar en el tópico procesado (sin guardar en BD para evitar duplicados)
+              // Solo publicar si el cliente está conectado
+              if (this.client && this.isConnected) {
                 try {
-                  const messageEntityProcesado = this.mqttMessageRepository.create({
-                    topic: topicProcesado,
-                    message: mensajeProcesado,
-                    timestamp,
-                    userId: null,
-                    username: null,
+                  this.client.publish(topicProcesado, mensajeProcesado, { qos: 0 }, (err) => {
+                    if (err) {
+                      this.logger.error(`Error al publicar mensaje procesado en ${topicProcesado}: ${err.message}`);
+                    } else {
+                      this.logger.debug(`Mensaje procesado publicado en ${topicProcesado}`);
+                    }
                   });
-                  await this.mqttMessageRepository.save(messageEntityProcesado);
-                  this.logger.debug(`Mensaje procesado guardado en BD: ${topicProcesado}`);
+                  
+                  // Guardar mensaje procesado en BD
+                  try {
+                    const messageEntityProcesado = this.mqttMessageRepository.create({
+                      topic: topicProcesado,
+                      message: mensajeProcesado,
+                      timestamp,
+                      userId: null,
+                      username: null,
+                    });
+                    await this.mqttMessageRepository.save(messageEntityProcesado);
+                    this.logger.debug(`Mensaje procesado guardado en BD: ${topicProcesado}`);
+                  } catch (error) {
+                    this.logger.error(`Error al guardar mensaje procesado en BD: ${error.message}`);
+                  }
                 } catch (error) {
-                  this.logger.error(`Error al guardar mensaje procesado en BD: ${error.message}`);
+                  this.logger.error(`Error al procesar trama HSE: ${error.message}`);
                 }
-              } catch (error) {
-                this.logger.error(`Error al procesar trama HSE: ${error.message}`);
               }
             }
+          } else {
+            // Es una trama HSE pero no es de luminaria, solo guardar el mensaje original (ya guardado arriba)
+            this.logger.warn(`⚠️ Trama HSE detectada en ${topic} pero no se procesará porque no tiene categoría 'luminarias'.`);
+            this.logger.warn(`   Para procesar este topic, actualiza su categoría a 'luminarias' en la página de Configuración (Settings).`);
           }
         }
         
@@ -569,7 +621,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async subscribe(topic: string): Promise<boolean> {
+  async subscribe(topic: string, categoria?: 'chancado' | 'luminarias' | 'barreras' | 'otras_barreras' | 'otros' | 'prueba'): Promise<boolean> {
     if (!this.client || !this.isConnected) {
       this.logger.warn('No hay conexión MQTT activa');
       return false;
@@ -582,7 +634,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
             this.logger.error(`Error al suscribirse a ${topic}: ${err.message}`);
             resolve(false);
           } else {
-            this.logger.log(`Suscrito al topic: ${topic}`);
+            this.logger.log(`Suscrito al topic: ${topic}${categoria ? ` (categoría: ${categoria})` : ''}`);
             this.subscribedTopics.add(topic);
             
             // Guardar en la base de datos
@@ -595,13 +647,18 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
                 // Si existe pero está inactivo, reactivarlo
                 if (!existingTopic.active) {
                   existingTopic.active = true;
-                  await this.mqttSubscribedTopicRepository.save(existingTopic);
                 }
+                // Actualizar categoría si se proporciona
+                if (categoria) {
+                  existingTopic.categoria = categoria;
+                }
+                await this.mqttSubscribedTopicRepository.save(existingTopic);
               } else {
                 // Crear nuevo registro
                 const topicEntity = this.mqttSubscribedTopicRepository.create({
                   topic,
                   active: true,
+                  categoria: categoria || 'otros',
                 });
                 await this.mqttSubscribedTopicRepository.save(topicEntity);
               }
@@ -615,6 +672,27 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       });
     } catch (error) {
       this.logger.error(`Error al suscribirse: ${error.message}`);
+      return false;
+    }
+  }
+
+  async updateTopicCategory(topic: string, categoria: 'chancado' | 'luminarias' | 'barreras' | 'otras_barreras' | 'otros' | 'prueba'): Promise<boolean> {
+    try {
+      const topicEntity = await this.mqttSubscribedTopicRepository.findOne({
+        where: { topic },
+      });
+      
+      if (topicEntity) {
+        topicEntity.categoria = categoria;
+        await this.mqttSubscribedTopicRepository.save(topicEntity);
+        this.logger.log(`Categoría actualizada para ${topic}: ${categoria}`);
+        return true;
+      }
+      
+      this.logger.warn(`Topic ${topic} no encontrado para actualizar categoría`);
+      return false;
+    } catch (error) {
+      this.logger.error(`Error al actualizar categoría del topic: ${error.message}`);
       return false;
     }
   }

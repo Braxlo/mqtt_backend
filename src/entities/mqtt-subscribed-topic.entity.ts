@@ -24,6 +24,10 @@ export class MqttSubscribedTopic {
   @Column({ type: 'boolean', default: true })
   active: boolean;
 
+  @Column({ type: 'varchar', length: 50, nullable: true, default: 'otros' })
+  @Index()
+  categoria?: 'chancado' | 'luminarias' | 'barreras' | 'otras_barreras' | 'otros' | 'prueba';
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

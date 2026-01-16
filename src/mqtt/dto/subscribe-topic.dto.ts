@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, MaxLength, MinLength, Matches } from 'class-validator';
+import { IsString, IsNotEmpty, MinLength, MaxLength, Matches, IsOptional, IsIn } from 'class-validator';
 
 /**
  * DTO para suscribirse a un topic MQTT
@@ -12,5 +12,12 @@ export class SubscribeTopicDto {
     message: 'El topic no puede contener caracteres wildcard (# o +)',
   })
   topic: string;
+
+  @IsOptional()
+  @IsString({ message: 'La categoría debe ser una cadena de texto' })
+  @IsIn(['chancado', 'luminarias', 'barreras', 'otras_barreras', 'otros', 'prueba'], {
+    message: 'La categoría debe ser una de: chancado, luminarias, barreras, otras_barreras, otros, prueba',
+  })
+  categoria?: 'chancado' | 'luminarias' | 'barreras' | 'otras_barreras' | 'otros' | 'prueba';
 }
 
