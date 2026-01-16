@@ -216,10 +216,9 @@ export class MqttController {
         resultado,
         `Limpieza completada: ${resultado.eliminados} mensajes eliminados de ${resultado.topics.length} topics`,
       );
-    } catch (error) {
+    } catch (error: any) {
       return ResponseUtil.error(
-        `Error al limpiar topics procesado: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
+        `Error al limpiar topics procesado: ${error.message || 'Error desconocido'}`,
       );
     }
   }
