@@ -96,11 +96,21 @@ function esTramaHSE(buffer) {
 }
 
 /**
+ * Verifica si un topic es una luminaria que requiere orden Little-Endian (16, 17, 18, 19)
+ */
+function esLuminariaLittleEndian(topic) {
+  // Verificar si el topic termina en 16, 17, 18 o 19
+  const match = topic.match(/(?:LM|LUMINARIA)(?:0?)?([1][6-9])$/i);
+  return match !== null && ['16', '17', '18', '19'].includes(match[1]);
+}
+
+/**
  * Parsea una trama HSE del regulador de carga y retorna los valores convertidos
  * Formato: "HSE 260114 2353 " seguido de bytes binarios
  * Orden: VS, CS, SW (32 bits), VB, CB, LV, LC, LP (32 bits)
+ * IMPORTANTE: Para LM016, LM017, LM018, LM019 los bytes 32-bit vienen en Little-Endian (Low primero, High después)
  */
-function parsearTramaHSE(buffer) {
+function parsearTramaHSE(buffer, topic) {
   try {
     const messageStr = buffer.toString('binary');
     const cleaned = messageStr.trim();
@@ -161,12 +171,25 @@ function parsearTramaHSE(buffer) {
       datos.corrienteSolar = convertirHexADecimal(hexValues[2], hexValues[3]);
     }
 
-    // Byte 4-7: SW [W] - Potencia Solar (32 bits: High + Low)
+    // Byte 4-7: SW [W] - Potencia Solar (32 bits)
+    // IMPORTANTE: Para LM016-019, los bytes vienen en Little-Endian (Low primero, High después)
+    // En el mensaje: byte 4-5 = Low, byte 6-7 = High
+    // La función espera: High primero, Low después
+    const esLittleEndian = topic ? esLuminariaLittleEndian(topic) : false;
     if (hexValues.length >= 8) {
-      datos.potenciaSolar = convertirHex32BitsADecimal(
-        hexValues[4], hexValues[5],  // High
-        hexValues[6], hexValues[7]   // Low
-      );
+      if (esLittleEndian) {
+        // Orden Little-Endian: Low primero, High después en el mensaje
+        datos.potenciaSolar = convertirHex32BitsADecimal(
+          hexValues[6], hexValues[7],  // High (bytes 6-7 del mensaje)
+          hexValues[4], hexValues[5]   // Low (bytes 4-5 del mensaje)
+        );
+      } else {
+        // Orden Big-Endian estándar: High primero, Low después en el mensaje
+        datos.potenciaSolar = convertirHex32BitsADecimal(
+          hexValues[4], hexValues[5],  // High
+          hexValues[6], hexValues[7]   // Low
+        );
+      }
     }
 
     // Byte 8-9: VB [V] - Voltaje Batería
@@ -189,12 +212,25 @@ function parsearTramaHSE(buffer) {
       datos.corrienteCargas = convertirHexADecimal(hexValues[14], hexValues[15]);
     }
 
-    // Byte 16-19: LP [W] - Potencia Cargas / Luminosidad (32 bits: High + Low)
+    // Byte 16-19: LP [W] - Potencia Cargas / Luminosidad (32 bits)
+    // IMPORTANTE: Para LM016-019, los bytes vienen en Little-Endian (Low primero, High después)
+    // En el mensaje: byte 16-17 = Low, byte 18-19 = High
+    // La función espera: High primero, Low después
+    // Ejemplo: 2D 8B 00 01 → Low=2D8B (11659), High=0001 (1) → (1*65536 + 11659)/100 = 771.95
     if (hexValues.length >= 20) {
-      datos.potenciaCargas = convertirHex32BitsADecimal(
-        hexValues[16], hexValues[17],  // High
-        hexValues[18], hexValues[19]  // Low
-      );
+      if (esLittleEndian) {
+        // Orden Little-Endian: Low primero, High después en el mensaje
+        datos.potenciaCargas = convertirHex32BitsADecimal(
+          hexValues[18], hexValues[19],  // High (bytes 18-19 del mensaje)
+          hexValues[16], hexValues[17]   // Low (bytes 16-17 del mensaje)
+        );
+      } else {
+        // Orden Big-Endian estándar: High primero, Low después en el mensaje
+        datos.potenciaCargas = convertirHex32BitsADecimal(
+          hexValues[16], hexValues[17],  // High
+          hexValues[18], hexValues[19]  // Low
+        );
+      }
     }
 
     return datos;
@@ -253,7 +289,7 @@ client.on('message', (topic, message) => {
     }
     
     // Parsear la trama
-    const datosConvertidos = parsearTramaHSE(message);
+    const datosConvertidos = parsearTramaHSE(message, topic);
     
     if (datosConvertidos) {
       console.log(`✅ Trama parseada correctamente:`);
