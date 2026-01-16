@@ -432,6 +432,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       });
 
       this.client.on('message', async (topic, message) => {
+        // Ignorar mensajes de topics que ya terminan en /procesado (evitar procesar los procesados)
+        if (topic.endsWith('/procesado')) {
+          return;
+        }
         // Procesar mensaje: convertir a string para comparación y detección de duplicados
         const messageStr = message.toString('utf8');
         const timestamp = new Date();
@@ -860,6 +864,56 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       return { messages: processedMessages, total };
     } catch (error) {
       this.logger.error(`Error al obtener mensajes: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Limpiar topics /procesado que no son de luminarias
+   * Elimina todos los mensajes de topics que terminan en /procesado pero cuyo topic base no es de luminarias
+   */
+  async limpiarTopicsProcesadoNoLuminarias(): Promise<{ eliminados: number; topics: string[] }> {
+    try {
+      // Buscar todos los topics que terminan en /procesado
+      const topicsProcesado = await this.mqttMessageRepository
+        .createQueryBuilder('message')
+        .select('DISTINCT message.topic', 'topic')
+        .where('message.topic LIKE :pattern', { pattern: '%/procesado' })
+        .getRawMany();
+
+      const topicsAEliminar: string[] = [];
+      let totalEliminados = 0;
+
+      for (const row of topicsProcesado) {
+        const topicProcesado = row.topic;
+        // Extraer el topic base (sin /procesado)
+        const topicBase = topicProcesado.replace('/procesado', '');
+        
+        // Verificar si el topic base es de luminaria
+        const esLuminaria = await this.esTopicLuminaria(topicBase);
+        
+        if (!esLuminaria) {
+          // No es de luminaria, eliminar todos los mensajes de este topic procesado
+          const resultado = await this.mqttMessageRepository
+            .createQueryBuilder()
+            .delete()
+            .where('topic = :topic', { topic: topicProcesado })
+            .execute();
+          
+          const eliminados = resultado.affected || 0;
+          totalEliminados += eliminados;
+          topicsAEliminar.push(topicProcesado);
+          
+          this.logger.log(`Eliminados ${eliminados} mensajes del topic ${topicProcesado} (no es luminaria)`);
+        }
+      }
+
+      return {
+        eliminados: totalEliminados,
+        topics: topicsAEliminar,
+      };
+    } catch (error) {
+      this.logger.error(`Error al limpiar topics procesado no luminarias: ${error.message}`);
       throw error;
     }
   }

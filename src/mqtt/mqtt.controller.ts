@@ -204,5 +204,24 @@ export class MqttController {
     const topics = await this.mqttService.getUniqueTopics();
     return ResponseUtil.success({ topics }, 'Topics únicos obtenidos');
   }
+
+  @Delete('messages/cleanup-procesado')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @HttpCode(HttpStatus.OK)
+  async limpiarTopicsProcesadoNoLuminarias() {
+    try {
+      const resultado = await this.mqttService.limpiarTopicsProcesadoNoLuminarias();
+      return ResponseUtil.success(
+        resultado,
+        `Limpieza completada: ${resultado.eliminados} mensajes eliminados de ${resultado.topics.length} topics`,
+      );
+    } catch (error) {
+      return ResponseUtil.error(
+        `Error al limpiar topics procesado: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 }
 
