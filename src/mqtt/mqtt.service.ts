@@ -434,7 +434,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         this.logger.log('Conectado al broker MQTT exitosamente');
         // Cargar topics suscritos desde la base de datos y resuscribir
         await this.loadSubscribedTopicsFromDB();
-        // Emitir evento de conexión (se manejará en el gateway)
+        // Nota: El evento de conexión se emitirá desde el gateway cuando se resuelva la promesa
       });
 
       this.client.on('message', async (topic, message) => {
@@ -585,16 +585,74 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         this.logger.log('Reconectando al broker MQTT...');
       });
 
-      return new Promise((resolve) => {
-        this.client!.on('connect', () => {
-          resolve(true);
-        });
-        this.client!.on('error', () => {
-          resolve(false);
-        });
+      // Crear una promesa con timeout para evitar esperas indefinidas
+      return new Promise<boolean>((resolve) => {
+        let resolved = false;
+        const timeout = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            this.logger.error('Timeout al conectar al broker MQTT');
+            this.isConnected = false;
+            if (this.client) {
+              this.client.end();
+              this.client = null;
+            }
+            resolve(false);
+          }
+        }, 30000); // 30 segundos de timeout
+
+        const onConnect = () => {
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            this.client!.removeListener('connect', onConnect);
+            this.client!.removeListener('error', onError);
+            this.client!.removeListener('close', onClose);
+            resolve(true);
+          }
+        };
+
+        const onError = (error: Error) => {
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            this.logger.error(`Error al conectar al broker MQTT: ${error.message}`);
+            this.isConnected = false;
+            this.client!.removeListener('connect', onConnect);
+            this.client!.removeListener('error', onError);
+            this.client!.removeListener('close', onClose);
+            if (this.client) {
+              this.client.end();
+              this.client = null;
+            }
+            resolve(false);
+          }
+        };
+
+        const onClose = () => {
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            this.logger.warn('Conexión cerrada antes de establecerse');
+            this.isConnected = false;
+            this.client!.removeListener('connect', onConnect);
+            this.client!.removeListener('error', onError);
+            this.client!.removeListener('close', onClose);
+            resolve(false);
+          }
+        };
+
+        this.client!.on('connect', onConnect);
+        this.client!.on('error', onError);
+        this.client!.on('close', onClose);
       });
     } catch (error) {
       this.logger.error(`Error al conectar: ${error.message}`);
+      this.isConnected = false;
+      if (this.client) {
+        this.client.end();
+        this.client = null;
+      }
       return false;
     }
   }

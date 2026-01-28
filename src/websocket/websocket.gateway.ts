@@ -94,7 +94,11 @@ export class WebSocketGateway
    */
   emitStatusUpdate() {
     const status: MqttConnectionStatus = this.mqttService.getConnectionStatus();
-    this.server.emit('mqtt:status', status);
+    const topics = this.mqttService.getSubscribedTopics();
+    this.server.emit('mqtt:status', {
+      ...status,
+      subscribedTopics: topics,
+    });
   }
 }
 

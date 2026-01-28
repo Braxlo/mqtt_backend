@@ -41,21 +41,42 @@ export class MqttController {
   @HttpCode(HttpStatus.OK)
   async connect(@Body() connectDto: ConnectBrokerDto) {
     const autoConnect = connectDto.autoConnect !== undefined ? connectDto.autoConnect : true;
-    const connected = await this.mqttService.connect(connectDto.brokerUrl, autoConnect);
+    
+    // Validar URL antes de intentar conectar
+    if (!connectDto.brokerUrl || !connectDto.brokerUrl.trim()) {
+      // Emitir estado actualizado incluso en caso de error
+      setTimeout(() => {
+        this.wsGateway.emitStatusUpdate();
+      }, 100);
+      return ResponseUtil.error('La URL del broker no puede estar vacía');
+    }
+
+    const connected = await this.mqttService.connect(connectDto.brokerUrl.trim(), autoConnect);
     
     // Notificar cambio de estado a todos los clientes WebSocket
+    // Esperar un poco más para asegurar que el estado interno se haya actualizado
     setTimeout(() => {
       this.wsGateway.emitStatusUpdate();
-    }, 100);
+    }, 500);
 
     if (connected) {
+      // Verificar nuevamente el estado después de un breve delay para asegurar consistencia
+      setTimeout(() => {
+        this.wsGateway.emitStatusUpdate();
+      }, 1500);
+      
       return ResponseUtil.success(
-        { brokerUrl: connectDto.brokerUrl, autoConnect },
+        { brokerUrl: connectDto.brokerUrl.trim(), autoConnect },
         'Conectado al broker MQTT exitosamente',
       );
     }
     
-    return ResponseUtil.error('Error al conectar al broker MQTT');
+    // Emitir estado actualizado incluso cuando falla la conexión
+    setTimeout(() => {
+      this.wsGateway.emitStatusUpdate();
+    }, 1000);
+    
+    return ResponseUtil.error('Error al conectar al broker MQTT. Verifica que la URL sea correcta y que el broker esté disponible.');
   }
 
   @Post('disconnect')
