@@ -23,6 +23,14 @@ export class Luminaria {
   @Index()
   topic: string;
 
+  @Column({ 
+    type: 'varchar', 
+    length: 10, 
+    default: 'PLC_S',
+    comment: 'Tipo de dispositivo de entrada: RPI (Raspberry Pi - datos ya procesados), PLC_S (PLC Siemens - requiere procesamiento), PLC_N (PLC Nitz - pendiente)'
+  })
+  tipoDispositivo: 'RPI' | 'PLC_S' | 'PLC_N';
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

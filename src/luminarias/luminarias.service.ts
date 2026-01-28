@@ -30,6 +30,7 @@ export class LuminariasService {
       id: l.id,
       nombre: l.nombre,
       topic: l.topic,
+      tipoDispositivo: l.tipoDispositivo || 'PLC_S',
     }));
   }
 
@@ -45,6 +46,7 @@ export class LuminariasService {
       id: luminaria.id,
       nombre: luminaria.nombre,
       topic: luminaria.topic,
+      tipoDispositivo: luminaria.tipoDispositivo || 'PLC_S',
     };
   }
 
@@ -54,14 +56,16 @@ export class LuminariasService {
   async create(createLuminariaDto: CreateLuminariaDto): Promise<ConfiguracionLuminaria> {
     const nuevaLuminaria = this.luminariaRepository.create({
       id: Date.now().toString(),
+      tipoDispositivo: createLuminariaDto.tipoDispositivo || 'PLC_S',
       ...createLuminariaDto,
     });
     const savedLuminaria = await this.luminariaRepository.save(nuevaLuminaria);
-    this.logger.log(`Luminaria creada: ${savedLuminaria.nombre} (ID: ${savedLuminaria.id})`);
+    this.logger.log(`Luminaria creada: ${savedLuminaria.nombre} (ID: ${savedLuminaria.id}, Tipo: ${savedLuminaria.tipoDispositivo})`);
     return {
       id: savedLuminaria.id,
       nombre: savedLuminaria.nombre,
       topic: savedLuminaria.topic,
+      tipoDispositivo: savedLuminaria.tipoDispositivo || 'PLC_S',
     };
   }
 
@@ -75,12 +79,17 @@ export class LuminariasService {
     }
 
     Object.assign(luminaria, updateLuminariaDto);
+    // Si no se proporciona tipoDispositivo en la actualización, mantener el existente
+    if (updateLuminariaDto.tipoDispositivo === undefined) {
+      luminaria.tipoDispositivo = luminaria.tipoDispositivo || 'PLC_S';
+    }
     const updatedLuminaria = await this.luminariaRepository.save(luminaria);
-    this.logger.log(`Luminaria actualizada: ${updatedLuminaria.nombre} (ID: ${id})`);
+    this.logger.log(`Luminaria actualizada: ${updatedLuminaria.nombre} (ID: ${id}, Tipo: ${updatedLuminaria.tipoDispositivo})`);
     return {
       id: updatedLuminaria.id,
       nombre: updatedLuminaria.nombre,
       topic: updatedLuminaria.topic,
+      tipoDispositivo: updatedLuminaria.tipoDispositivo || 'PLC_S',
     };
   }
 

@@ -177,14 +177,34 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       if (luminaria) {
         this.logger.debug(`Topic ${topic} encontrado en tabla luminarias`);
         return true;
-      } else {
-        this.logger.debug(`Topic ${topic} NO encontrado en tabla luminarias`);
       }
       
       return false;
     } catch (error) {
       this.logger.error(`Error al verificar si topic es luminaria: ${error.message}`);
       return false;
+    }
+  }
+
+  /**
+   * Obtiene el tipo de dispositivo de una luminaria por su topic
+   * @param topic Topic MQTT de la luminaria
+   * @returns Tipo de dispositivo: 'RPI', 'PLC_S', 'PLC_N' o null si no se encuentra
+   */
+  private async obtenerTipoDispositivoLuminaria(topic: string): Promise<'RPI' | 'PLC_S' | 'PLC_N' | null> {
+    try {
+      const luminaria = await this.luminariaRepository.findOne({
+        where: { topic },
+      });
+      
+      if (luminaria) {
+        return luminaria.tipoDispositivo || 'PLC_S'; // Default a PLC_S para compatibilidad
+      }
+      
+      return null;
+    } catch (error) {
+      this.logger.error(`Error al obtener tipo de dispositivo para topic ${topic}: ${error.message}`);
+      return null;
     }
   }
 
@@ -540,43 +560,74 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           const esLuminaria = await this.esTopicLuminaria(topic);
           
           if (esLuminaria) {
-            const datosConvertidos = this.parsearTramaHSE(message, topic);
+            // Obtener el tipo de dispositivo de la luminaria
+            const tipoDispositivo = await this.obtenerTipoDispositivoLuminaria(topic);
             
-            if (datosConvertidos) {
-              // Crear tópico procesado: agregar "/procesado" al tópico original
-              const topicProcesado = `${topic}/procesado`;
+            // Solo procesar señal si es PLC_S (PLC Siemens requiere procesamiento)
+            // RPI ya envía los datos procesados, no necesita conversión
+            if (tipoDispositivo === 'PLC_S') {
+              this.logger.debug(`Procesando señal HSE para luminaria ${topic} (tipo: PLC_S)`);
+              const datosConvertidos = this.parsearTramaHSE(message, topic);
               
-              // Crear mensaje JSON con los valores convertidos
-              const mensajeProcesado = JSON.stringify(datosConvertidos);
-              
-              // Publicar en el tópico procesado (sin guardar en BD para evitar duplicados)
-              // Solo publicar si el cliente está conectado
-              if (this.client && this.isConnected) {
-                try {
-                  this.client.publish(topicProcesado, mensajeProcesado, { qos: 0 }, (err) => {
-                    if (err) {
-                      this.logger.error(`Error al publicar mensaje procesado en ${topicProcesado}: ${err.message}`);
-                    } else {
-                      this.logger.debug(`Mensaje procesado publicado en ${topicProcesado}`);
-                    }
-                  });
-                  
-                  // Guardar mensaje procesado en BD
+              if (datosConvertidos) {
+                // Crear tópico procesado: agregar "/procesado" al tópico original
+                const topicProcesado = `${topic}/procesado`;
+                
+                // Crear mensaje JSON con los valores convertidos
+                const mensajeProcesado = JSON.stringify(datosConvertidos);
+                
+                // Publicar en el tópico procesado (sin guardar en BD para evitar duplicados)
+                // Solo publicar si el cliente está conectado
+                if (this.client && this.isConnected) {
                   try {
-                    const messageEntityProcesado = this.mqttMessageRepository.create({
-                      topic: topicProcesado,
-                      message: mensajeProcesado,
-                      timestamp,
-                      userId: null,
-                      username: null,
+                    this.client.publish(topicProcesado, mensajeProcesado, { qos: 0 }, (err) => {
+                      if (err) {
+                        this.logger.error(`Error al publicar mensaje procesado en ${topicProcesado}: ${err.message}`);
+                      } else {
+                        this.logger.debug(`Mensaje procesado publicado en ${topicProcesado}`);
+                      }
                     });
-                    await this.mqttMessageRepository.save(messageEntityProcesado);
-                    this.logger.debug(`Mensaje procesado guardado en BD: ${topicProcesado}`);
+                    
+                    // Guardar mensaje procesado en BD
+                    try {
+                      const messageEntityProcesado = this.mqttMessageRepository.create({
+                        topic: topicProcesado,
+                        message: mensajeProcesado,
+                        timestamp,
+                        userId: null,
+                        username: null,
+                      });
+                      await this.mqttMessageRepository.save(messageEntityProcesado);
+                      this.logger.debug(`Mensaje procesado guardado en BD: ${topicProcesado}`);
+                    } catch (error) {
+                      this.logger.error(`Error al guardar mensaje procesado en BD: ${error.message}`);
+                    }
                   } catch (error) {
-                    this.logger.error(`Error al guardar mensaje procesado en BD: ${error.message}`);
+                    this.logger.error(`Error al procesar trama HSE: ${error.message}`);
                   }
-                } catch (error) {
-                  this.logger.error(`Error al procesar trama HSE: ${error.message}`);
+                }
+              }
+            } else if (tipoDispositivo === 'RPI') {
+              // RPI ya envía los datos procesados, no necesita conversión
+              this.logger.debug(`Mensaje de RPI recibido en ${topic} - datos ya procesados, no se requiere conversión`);
+              // El mensaje original ya se guardó arriba, no necesita procesamiento adicional
+            } else {
+              this.logger.debug(`Tipo de dispositivo desconocido o no configurado para ${topic}, usando procesamiento por defecto (PLC_S)`);
+              // Por compatibilidad, si no está configurado, procesar como PLC_S
+              const datosConvertidos = this.parsearTramaHSE(message, topic);
+              if (datosConvertidos) {
+                const topicProcesado = `${topic}/procesado`;
+                const mensajeProcesado = JSON.stringify(datosConvertidos);
+                if (this.client && this.isConnected) {
+                  this.client.publish(topicProcesado, mensajeProcesado, { qos: 0 });
+                  const messageEntityProcesado = this.mqttMessageRepository.create({
+                    topic: topicProcesado,
+                    message: mensajeProcesado,
+                    timestamp,
+                    userId: null,
+                    username: null,
+                  });
+                  await this.mqttMessageRepository.save(messageEntityProcesado);
                 }
               }
             }
