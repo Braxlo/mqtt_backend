@@ -14,5 +14,13 @@ export class ConnectBrokerDto {
   @IsOptional()
   @IsBoolean({ message: 'autoConnect debe ser un valor booleano' })
   autoConnect?: boolean;
+
+  @IsOptional()
+  @IsString({ message: 'El username debe ser una cadena de texto' })
+  username?: string;
+
+  @IsOptional()
+  @IsString({ message: 'El password debe ser una cadena de texto' })
+  password?: string;
 }
 

@@ -16,5 +16,6 @@ export interface MqttConnectionStatus {
   connected: boolean;
   brokerUrl: string | null;
   subscribedTopics: string[];
+  username?: string | null;
 }
 

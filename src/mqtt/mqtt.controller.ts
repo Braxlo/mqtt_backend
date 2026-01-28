@@ -51,7 +51,12 @@ export class MqttController {
       return ResponseUtil.error('La URL del broker no puede estar vacía');
     }
 
-    const connected = await this.mqttService.connect(connectDto.brokerUrl.trim(), autoConnect);
+    const connected = await this.mqttService.connect(
+      connectDto.brokerUrl.trim(),
+      autoConnect,
+      connectDto.username,
+      connectDto.password,
+    );
     
     // Notificar cambio de estado a todos los clientes WebSocket
     // Esperar un poco más para asegurar que el estado interno se haya actualizado
@@ -66,7 +71,11 @@ export class MqttController {
       }, 1500);
       
       return ResponseUtil.success(
-        { brokerUrl: connectDto.brokerUrl.trim(), autoConnect },
+        {
+          brokerUrl: connectDto.brokerUrl.trim(),
+          autoConnect,
+          username: connectDto.username || null,
+        },
         'Conectado al broker MQTT exitosamente',
       );
     }

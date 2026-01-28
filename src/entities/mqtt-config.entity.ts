@@ -21,6 +21,12 @@ export class MqttConfig {
   @Column({ type: 'boolean', default: false })
   autoConnect: boolean;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  username: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  password: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

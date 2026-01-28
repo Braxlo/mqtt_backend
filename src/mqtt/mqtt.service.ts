@@ -15,6 +15,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MqttService.name);
   private client: mqtt.MqttClient | null = null;
   private brokerUrl: string | null = null;
+  private username: string | null = null;
   private isConnected = false;
   private subscribedTopics = new Set<string>();
   public messageSubject = new Subject<MqttMessageInterface>();
@@ -377,8 +378,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
       // Si hay broker URL y autoConnect está activado, conectar
       if (config.brokerUrl && config.autoConnect) {
-        this.logger.log(`Auto-conectando al broker MQTT: ${config.brokerUrl}`);
-        await this.connect(config.brokerUrl);
+        this.logger.log(`Auto-conectando al broker MQTT: ${config.brokerUrl}${config.username ? ` con usuario: ${config.username}` : ''}`);
+        await this.connect(config.brokerUrl, config.autoConnect, config.username, config.password);
       }
     } catch (error) {
       this.logger.error(`Error en auto-conexión MQTT: ${error.message}`);
@@ -391,14 +392,20 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     this.messageSubject.complete();
   }
 
-  async connect(brokerUrl: string, autoConnect: boolean = true): Promise<boolean> {
+  async connect(
+    brokerUrl: string,
+    autoConnect: boolean = true,
+    username?: string | null,
+    password?: string | null,
+  ): Promise<boolean> {
     try {
       if (this.client && this.isConnected) {
         await this.disconnect();
       }
 
       this.brokerUrl = brokerUrl;
-      this.logger.log(`Conectando al broker MQTT: ${brokerUrl}`);
+      this.username = username || null;
+      this.logger.log(`Conectando al broker MQTT: ${brokerUrl}${username ? ` con usuario: ${username}` : ''}`);
 
       // Guardar configuración en la base de datos
       try {
@@ -411,10 +418,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
             id: 'default',
             brokerUrl,
             autoConnect,
+            username: username || null,
+            password: password || null,
           });
         } else {
           config.brokerUrl = brokerUrl;
           config.autoConnect = autoConnect;
+          config.username = username || null;
+          config.password = password || null;
         }
 
         await this.mqttConfigRepository.save(config);
@@ -423,11 +434,21 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`Error al guardar configuración MQTT: ${dbError.message}`);
       }
 
-      this.client = mqtt.connect(brokerUrl, {
+      // Preparar opciones de conexión con autenticación básica si se proporcionan credenciales
+      const connectOptions: mqtt.IClientOptions = {
         clientId: `centinela-backend-${Date.now()}`,
         reconnectPeriod: 5000,
         connectTimeout: 30000,
-      });
+      };
+
+      // Agregar autenticación básica si se proporcionan credenciales
+      if (username && password) {
+        connectOptions.username = username;
+        connectOptions.password = password;
+        this.logger.log('Usando autenticación básica para la conexión MQTT');
+      }
+
+      this.client = mqtt.connect(brokerUrl, connectOptions);
 
       this.client.on('connect', async () => {
         this.isConnected = true;
@@ -664,6 +685,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       this.isConnected = false;
       // No limpiar los topics de la BD, solo de memoria
       this.subscribedTopics.clear();
+      // No limpiar el username, se mantiene para la próxima conexión
       this.logger.log('Desconectado del broker MQTT');
 
       // Actualizar configuración para desactivar autoConnect
@@ -892,6 +914,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       connected: this.isConnected,
       brokerUrl: this.brokerUrl,
       subscribedTopics: this.getSubscribedTopics(),
+      username: this.username,
     };
   }
 
