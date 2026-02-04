@@ -244,10 +244,42 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       const horaStr = match[2];
       const inicioDatos = match[0].length;
 
-      // Formatear fecha (DDMMYY)
-      const fecha = fechaStr.length === 6
-        ? `${fechaStr.substring(0, 2)}/${fechaStr.substring(2, 4)}/${fechaStr.substring(4, 6)}`
-        : fechaStr;
+      // Formatear fecha - detectar automáticamente si es DDMMYY o YYMMDD
+      let fecha: string;
+      if (fechaStr.length === 6) {
+        // Intentar primero como DDMMYY
+        const dd1 = fechaStr.substring(0, 2);
+        const mm1 = fechaStr.substring(2, 4);
+        const yy1 = fechaStr.substring(4, 6);
+        const mes1 = parseInt(mm1);
+        const dia1 = parseInt(dd1);
+        
+        // Intentar como YYMMDD
+        const yy2 = fechaStr.substring(0, 2);
+        const mm2 = fechaStr.substring(2, 4);
+        const dd2 = fechaStr.substring(4, 6);
+        const mes2 = parseInt(mm2);
+        const dia2 = parseInt(dd2);
+        
+        // Validar ambas: mes debe estar entre 1-12, día entre 1-31
+        const valida1 = mes1 >= 1 && mes1 <= 12 && dia1 >= 1 && dia1 <= 31;
+        const valida2 = mes2 >= 1 && mes2 <= 12 && dia2 >= 1 && dia2 <= 31;
+        
+        if (valida1 && valida2) {
+          // Ambas válidas: usar DDMMYY por defecto (formato más común)
+          fecha = `${dd1}/${mm1}/${yy1}`;
+        } else if (valida1) {
+          fecha = `${dd1}/${mm1}/${yy1}`;
+        } else if (valida2) {
+          // Es YYMMDD, convertir a DDMMYY para visualización
+          fecha = `${dd2}/${mm2}/${yy2}`;
+        } else {
+          // Ninguna válida, usar formato original
+          fecha = fechaStr;
+        }
+      } else {
+        fecha = fechaStr;
+      }
 
       // Formatear hora (HHMM)
       const hora = horaStr.length === 4
