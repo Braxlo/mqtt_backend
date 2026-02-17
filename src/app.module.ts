@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { BarrerasModule } from './barreras/barreras.module';
 import { LuminariasModule } from './luminarias/luminarias.module';
 import { LuminariasMapaModule } from './luminarias-mapa/luminarias-mapa.module';
+import { LetrerosModule } from './letreros/letreros.module';
 import { EscenariosModule } from './escenarios/escenarios.module';
 import { UsersModule } from './users/users.module';
 import { HealthController } from './common/controllers/health.controller';
@@ -16,6 +17,7 @@ import {
   Barrera,
   Luminaria,
   LuminariaMapa,
+  Letrero,
   Escenario,
   EscenarioTopic,
   MqttMessage,
@@ -56,7 +58,7 @@ import { Repository } from 'typeorm';
         username: configService.get<string>('DB_USERNAME', 'postgres'),
         password: configService.get<string>('DB_PASSWORD', ''),
         database: configService.get<string>('DB_NAME', 'mqtt_centinela'),
-        entities: [User, Barrera, Luminaria, LuminariaMapa, Escenario, EscenarioTopic, MqttMessage, MqttSubscribedTopic, MqttConfig],
+        entities: [User, Barrera, Luminaria, LuminariaMapa, Letrero, Escenario, EscenarioTopic, MqttMessage, MqttSubscribedTopic, MqttConfig],
           synchronize,
         logging: configService.get<boolean>('DB_LOGGING', false),
         };
@@ -69,6 +71,7 @@ import { Repository } from 'typeorm';
     BarrerasModule,
     LuminariasModule,
     LuminariasMapaModule,
+    LetrerosModule,
     EscenariosModule,
     UsersModule,
   ],

@@ -19,6 +19,8 @@ export class HealthController {
           auth: '/api/auth',
           mqtt: '/api/mqtt',
           barreras: '/api/barreras',
+          luminarias: '/api/luminarias',
+          letreros: '/api/letreros',
           escenarios: '/api/escenarios',
           users: '/api/users',
         },

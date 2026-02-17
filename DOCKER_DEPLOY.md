@@ -136,8 +136,8 @@ Para actualizar la aplicación:
 # Detener el contenedor
 docker stop centinela-backend
 
-# Reconstruir la imagen
-docker build -t centinela-backend:latest .
+# Reconstruir la imagen (sin caché si añadiste nuevos módulos/rutas)
+docker build --no-cache -t centinela-backend:latest .
 
 # Iniciar nuevamente
 docker start centinela-backend
@@ -145,3 +145,19 @@ docker start centinela-backend
 # O con docker-compose
 docker-compose up -d --build
 ```
+
+#### Si añadiste nuevos módulos (ej. Letreros) y obtienes 404
+
+Si el frontend devuelve **"Cannot POST /api/letreros"** (404), el backend desplegado **no tiene** esa ruta porque sigue corriendo una imagen antigua. Debes:
+
+1. **Reconstruir la imagen del backend sin caché** para que incluya el código nuevo:
+   ```bash
+   cd backend
+   docker build --no-cache -t centinela-backend:latest .
+   ```
+2. **Redesplegar el contenedor** (reiniciar con la nueva imagen).
+3. **Comprobar** que la ruta existe:
+   ```bash
+   curl http://2.136.50.216:3006/api
+   ```
+   La respuesta debe listar `letreros: '/api/letreros'` en `endpoints`.
