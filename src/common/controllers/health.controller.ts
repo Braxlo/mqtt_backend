@@ -23,6 +23,7 @@ export class HealthController {
           letreros: '/api/letreros',
           escenarios: '/api/escenarios',
           users: '/api/users',
+          puntosReferencia: '/api/puntos-referencia',
         },
       },
       'API funcionando correctamente',
