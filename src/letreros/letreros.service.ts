@@ -56,10 +56,12 @@ export class LetrerosService {
    * Crear un nuevo letrero
    */
   async create(createLetreroDto: CreateLetreroDto): Promise<ConfiguracionLetrero> {
+    const topic = (createLetreroDto.topic || '').trim();
     const nuevoLetrero = this.letreroRepository.create({
       id: Date.now().toString(),
+      topic,
+      nombre: createLetreroDto.nombre,
       tipoDispositivo: createLetreroDto.tipoDispositivo || 'PLC_S',
-      ...createLetreroDto,
       categoria: 'letreros', // Siempre se muestra en la página de Letreros
     });
     const savedLetrero = await this.letreroRepository.save(nuevoLetrero);
@@ -83,6 +85,9 @@ export class LetrerosService {
     }
 
     Object.assign(letrero, updateLetreroDto);
+    if (updateLetreroDto.topic !== undefined) {
+      letrero.topic = (updateLetreroDto.topic || '').trim();
+    }
     if (updateLetreroDto.tipoDispositivo === undefined) {
       letrero.tipoDispositivo = letrero.tipoDispositivo || 'PLC_S';
     }

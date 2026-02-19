@@ -211,19 +211,24 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Verifica si un topic es de un letrero (consultando la categoría en la base de datos o tabla letreros)
+   * Verifica si un topic es de un letrero (consultando la categoría en la base de datos o tabla letreros).
+   * Se normaliza el topic (trim) para que coincida con la configuración del letrero.
    */
   private async esTopicLetrero(topic: string): Promise<boolean> {
     try {
+      const topicNorm = (topic || '').trim();
+      const topicNormLower = topicNorm.toLowerCase();
       const subscribedTopic = await this.mqttSubscribedTopicRepository.findOne({
-        where: { topic },
+        where: { topic: topicNorm },
       });
       if (subscribedTopic?.categoria === 'letreros') {
         return true;
       }
-      const letrero = await this.letreroRepository.findOne({
-        where: { topic },
-      });
+      let letrero = await this.letreroRepository.findOne({ where: { topic: topicNorm } });
+      if (!letrero) {
+        const todos = await this.letreroRepository.find();
+        letrero = todos.find((l) => (l.topic || '').trim().toLowerCase() === topicNormLower) ?? null;
+      }
       return !!letrero;
     } catch (error) {
       this.logger.error(`Error al verificar si topic es letrero: ${error.message}`);
@@ -232,13 +237,19 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Obtiene el tipo de dispositivo de un letrero por su topic
+   * Obtiene el tipo de dispositivo de un letrero por su topic.
+   * Si está configurado como PLC_S (Requiere procesamiento), se usa la misma lógica que para luminarias.
    */
   private async obtenerTipoDispositivoLetrero(topic: string): Promise<'RPI' | 'PLC_S' | 'PLC_N' | null> {
     try {
-      const letrero = await this.letreroRepository.findOne({
-        where: { topic },
+      const topicNorm = (topic || '').trim().toLowerCase();
+      let letrero = await this.letreroRepository.findOne({
+        where: { topic: (topic || '').trim() },
       });
+      if (!letrero) {
+        const todos = await this.letreroRepository.find();
+        letrero = todos.find((l) => (l.topic || '').trim().toLowerCase() === topicNorm) ?? null;
+      }
       if (letrero) {
         return letrero.tipoDispositivo || 'PLC_S';
       }
@@ -654,6 +665,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         }
         
         // Detectar si es una trama HSE (luminaria o letrero) y procesar si es PLC_S
+        // Mismo procesamiento para ambos: parsear trama HSE y publicar JSON en topic/procesado
         if (this.esTramaHSE(message)) {
           const esLuminaria = await this.esTopicLuminaria(topic);
           const esLetrero = await this.esTopicLetrero(topic);
