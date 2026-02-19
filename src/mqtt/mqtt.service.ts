@@ -8,6 +8,7 @@ import { MqttMessage as MqttMessageEntity } from '../entities/mqtt-message.entit
 import { MqttSubscribedTopic } from '../entities/mqtt-subscribed-topic.entity';
 import { MqttConfig } from '../entities/mqtt-config.entity';
 import { Luminaria } from '../entities/luminaria.entity';
+import { Letrero } from '../entities/letrero.entity';
 import { APP_CONSTANTS } from '../common/constants/app.constants';
 
 @Injectable()
@@ -210,6 +211,45 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Verifica si un topic es de un letrero (consultando la categoría en la base de datos o tabla letreros)
+   */
+  private async esTopicLetrero(topic: string): Promise<boolean> {
+    try {
+      const subscribedTopic = await this.mqttSubscribedTopicRepository.findOne({
+        where: { topic },
+      });
+      if (subscribedTopic?.categoria === 'letreros') {
+        return true;
+      }
+      const letrero = await this.letreroRepository.findOne({
+        where: { topic },
+      });
+      return !!letrero;
+    } catch (error) {
+      this.logger.error(`Error al verificar si topic es letrero: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Obtiene el tipo de dispositivo de un letrero por su topic
+   */
+  private async obtenerTipoDispositivoLetrero(topic: string): Promise<'RPI' | 'PLC_S' | 'PLC_N' | null> {
+    try {
+      const letrero = await this.letreroRepository.findOne({
+        where: { topic },
+      });
+      if (letrero) {
+        return letrero.tipoDispositivo || 'PLC_S';
+      }
+      return null;
+    } catch (error) {
+      this.logger.error(`Error al obtener tipo de dispositivo letrero para topic ${topic}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
    * Verifica si un topic es una luminaria que requiere orden Little-Endian (16, 17, 18, 19)
    */
   private esLuminariaLittleEndian(topic: string): boolean {
@@ -402,6 +442,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     private mqttConfigRepository: Repository<MqttConfig>,
     @InjectRepository(Luminaria)
     private luminariaRepository: Repository<Luminaria>,
+    @InjectRepository(Letrero)
+    private letreroRepository: Repository<Letrero>,
   ) {}
 
   async onModuleInit() {
@@ -611,73 +653,31 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           this.logger.error(`Error al guardar mensaje MQTT en BD: ${error.message}`);
         }
         
-        // Detectar si es una trama HSE de luminaria y procesar
-        // IMPORTANTE: Solo procesar si el topic es de una luminaria (no barreras u otros)
+        // Detectar si es una trama HSE (luminaria o letrero) y procesar si es PLC_S
         if (this.esTramaHSE(message)) {
-          // Verificar si el topic es de una luminaria consultando la base de datos
           const esLuminaria = await this.esTopicLuminaria(topic);
-          
-          if (esLuminaria) {
-            // Obtener el tipo de dispositivo de la luminaria
-            const tipoDispositivo = await this.obtenerTipoDispositivoLuminaria(topic);
-            
-            // Solo procesar señal si es PLC_S (PLC Siemens requiere procesamiento)
-            // RPI ya envía los datos procesados, no necesita conversión
-            if (tipoDispositivo === 'PLC_S') {
-              this.logger.debug(`Procesando señal HSE para luminaria ${topic} (tipo: PLC_S)`);
+          const esLetrero = await this.esTopicLetrero(topic);
+
+          const procesarHSE = async (tipoDispositivo: 'RPI' | 'PLC_S' | 'PLC_N' | null, tipoEntidad: string) => {
+            if (tipoDispositivo === 'RPI') {
+              this.logger.debug(`Mensaje de RPI recibido en ${topic} (${tipoEntidad}) - datos ya procesados`);
+              return;
+            }
+            const procesarComoPLC = tipoDispositivo === 'PLC_S' || tipoDispositivo === 'PLC_N' || !tipoDispositivo;
+            if (procesarComoPLC) {
+              this.logger.debug(`Procesando señal HSE para ${tipoEntidad} ${topic} (tipo: ${tipoDispositivo || 'PLC_S'})`);
               const datosConvertidos = this.parsearTramaHSE(message, topic);
-              
-              if (datosConvertidos) {
-                // Crear tópico procesado: agregar "/procesado" al tópico original
+              if (datosConvertidos && this.client && this.isConnected) {
                 const topicProcesado = `${topic}/procesado`;
-                
-                // Crear mensaje JSON con los valores convertidos
                 const mensajeProcesado = JSON.stringify(datosConvertidos);
-                
-                // Publicar en el tópico procesado (sin guardar en BD para evitar duplicados)
-                // Solo publicar si el cliente está conectado
-                if (this.client && this.isConnected) {
-                  try {
-                    this.client.publish(topicProcesado, mensajeProcesado, { qos: 0 }, (err) => {
-                      if (err) {
-                        this.logger.error(`Error al publicar mensaje procesado en ${topicProcesado}: ${err.message}`);
-                      } else {
-                        this.logger.debug(`Mensaje procesado publicado en ${topicProcesado}`);
-                      }
-                    });
-                    
-                    // Guardar mensaje procesado en BD
-                    try {
-                      const messageEntityProcesado = this.mqttMessageRepository.create({
-                        topic: topicProcesado,
-                        message: mensajeProcesado,
-                        timestamp,
-                        userId: null,
-                        username: null,
-                      });
-                      await this.mqttMessageRepository.save(messageEntityProcesado);
-                      this.logger.debug(`Mensaje procesado guardado en BD: ${topicProcesado}`);
-                    } catch (error) {
-                      this.logger.error(`Error al guardar mensaje procesado en BD: ${error.message}`);
+                try {
+                  this.client.publish(topicProcesado, mensajeProcesado, { qos: 0 }, (err) => {
+                    if (err) {
+                      this.logger.error(`Error al publicar mensaje procesado en ${topicProcesado}: ${err.message}`);
+                    } else {
+                      this.logger.debug(`Mensaje procesado publicado en ${topicProcesado}`);
                     }
-                  } catch (error) {
-                    this.logger.error(`Error al procesar trama HSE: ${error.message}`);
-                  }
-                }
-              }
-            } else if (tipoDispositivo === 'RPI') {
-              // RPI ya envía los datos procesados, no necesita conversión
-              this.logger.debug(`Mensaje de RPI recibido en ${topic} - datos ya procesados, no se requiere conversión`);
-              // El mensaje original ya se guardó arriba, no necesita procesamiento adicional
-            } else {
-              this.logger.debug(`Tipo de dispositivo desconocido o no configurado para ${topic}, usando procesamiento por defecto (PLC_S)`);
-              // Por compatibilidad, si no está configurado, procesar como PLC_S
-              const datosConvertidos = this.parsearTramaHSE(message, topic);
-              if (datosConvertidos) {
-                const topicProcesado = `${topic}/procesado`;
-                const mensajeProcesado = JSON.stringify(datosConvertidos);
-                if (this.client && this.isConnected) {
-                  this.client.publish(topicProcesado, mensajeProcesado, { qos: 0 });
+                  });
                   const messageEntityProcesado = this.mqttMessageRepository.create({
                     topic: topicProcesado,
                     message: mensajeProcesado,
@@ -686,13 +686,23 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
                     username: null,
                   });
                   await this.mqttMessageRepository.save(messageEntityProcesado);
+                  this.logger.debug(`Mensaje procesado guardado en BD: ${topicProcesado}`);
+                } catch (error) {
+                  this.logger.error(`Error al procesar trama HSE: ${error.message}`);
                 }
               }
             }
+          };
+
+          if (esLuminaria) {
+            const tipoDispositivo = await this.obtenerTipoDispositivoLuminaria(topic);
+            await procesarHSE(tipoDispositivo, 'luminaria');
+          } else if (esLetrero) {
+            const tipoDispositivo = await this.obtenerTipoDispositivoLetrero(topic);
+            await procesarHSE(tipoDispositivo, 'letrero');
           } else {
-            // Es una trama HSE pero no es de luminaria, solo guardar el mensaje original (ya guardado arriba)
-            this.logger.warn(`⚠️ Trama HSE detectada en ${topic} pero no se procesará porque no tiene categoría 'luminarias'.`);
-            this.logger.warn(`   Para procesar este topic, actualiza su categoría a 'luminarias' en la página de Configuración (Settings).`);
+            this.logger.warn(`⚠️ Trama HSE detectada en ${topic} pero no es de luminaria ni letrero configurado.`);
+            this.logger.warn(`   Configura el topic en Configuración de Luminarias o Configuración de Letreros (Settings).`);
           }
         }
         
@@ -1086,12 +1096,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Limpiar topics /procesado que no son de luminarias
-   * Elimina todos los mensajes de topics que terminan en /procesado pero cuyo topic base no es de luminarias
+   * Limpiar topics /procesado que no son de luminarias ni de letreros
+   * Elimina mensajes de /procesado cuyo topic base no está configurado como luminaria ni letrero
    */
   async limpiarTopicsProcesadoNoLuminarias(): Promise<{ eliminados: number; topics: string[] }> {
     try {
-      // Buscar todos los topics que terminan en /procesado
       const topicsProcesado = await this.mqttMessageRepository
         .createQueryBuilder('message')
         .select('DISTINCT message.topic', 'topic')
@@ -1103,34 +1112,26 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
       for (const row of topicsProcesado) {
         const topicProcesado = row.topic;
-        // Extraer el topic base (sin /procesado)
         const topicBase = topicProcesado.replace('/procesado', '');
-        
-        // Verificar si el topic base es de luminaria
         const esLuminaria = await this.esTopicLuminaria(topicBase);
-        
-        if (!esLuminaria) {
-          // No es de luminaria, eliminar todos los mensajes de este topic procesado
+        const esLetrero = await this.esTopicLetrero(topicBase);
+
+        if (!esLuminaria && !esLetrero) {
           const resultado = await this.mqttMessageRepository
             .createQueryBuilder()
             .delete()
             .where('topic = :topic', { topic: topicProcesado })
             .execute();
-          
           const eliminados = resultado.affected || 0;
           totalEliminados += eliminados;
           topicsAEliminar.push(topicProcesado);
-          
-          this.logger.log(`Eliminados ${eliminados} mensajes del topic ${topicProcesado} (no es luminaria)`);
+          this.logger.log(`Eliminados ${eliminados} mensajes del topic ${topicProcesado} (no es luminaria ni letrero)`);
         }
       }
 
-      return {
-        eliminados: totalEliminados,
-        topics: topicsAEliminar,
-      };
+      return { eliminados: totalEliminados, topics: topicsAEliminar };
     } catch (error) {
-      this.logger.error(`Error al limpiar topics procesado no luminarias: ${error.message}`);
+      this.logger.error(`Error al limpiar topics procesado: ${error.message}`);
       throw error;
     }
   }
