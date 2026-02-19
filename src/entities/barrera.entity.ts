@@ -41,8 +41,8 @@ export class Barrera {
   @Column({ type: 'integer', default: 0 })
   orden: number;
 
-  @Column({ type: 'varchar', length: 50, nullable: true, default: 'otros' })
-  categoria?: 'chancado' | 'luminarias' | 'barreras' | 'otras_barreras' | 'otros' | 'prueba';
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar';
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

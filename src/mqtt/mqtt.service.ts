@@ -512,27 +512,44 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
       this.client.on('message', async (topic, message) => {
         // Si se recibe un mensaje en un topic /procesado, verificar si es de luminaria
-        // Si no es de luminaria, ignorarlo y eliminar cualquier mensaje existente de ese topic
         if (topic.endsWith('/procesado')) {
           const topicBase = topic.replace('/procesado', '');
           const esLuminaria = await this.esTopicLuminaria(topicBase);
           if (!esLuminaria) {
-            // No es de luminaria, eliminar todos los mensajes de este topic y no procesar
-            this.logger.warn(`⚠️ Mensaje recibido en topic procesado no luminaria: ${topic}. Eliminando mensajes existentes...`);
+            // No es de luminaria (p. ej. barreras o letreros): guardar bajo el topic base para que esté en BD y los reportes lo vean
+            const timestamp = new Date();
+            const messageParaBD = this.procesarMensajeParaBD(message);
             try {
-              const resultado = await this.mqttMessageRepository
+              const messageEntity = this.mqttMessageRepository.create({
+                topic: topicBase,
+                message: messageParaBD,
+                timestamp,
+                userId: null,
+                username: null,
+              });
+              await this.mqttMessageRepository.save(messageEntity);
+              this.logger.debug(`Mensaje de topic ${topic} guardado bajo topic base ${topicBase} (barrera/letrero)`);
+            } catch (error) {
+              this.logger.error(`Error al guardar mensaje bajo topic base: ${error.message}`);
+            }
+            const mqttMessage: MqttMessageInterface = {
+              topic: topicBase,
+              message: messageParaBD,
+              timestamp,
+              userId: null,
+              username: null,
+            };
+            this.messageSubject.next(mqttMessage);
+            try {
+              await this.mqttMessageRepository
                 .createQueryBuilder()
                 .delete()
                 .where('topic = :topic', { topic })
                 .execute();
-              const eliminados = resultado.affected || 0;
-              if (eliminados > 0) {
-                this.logger.log(`Eliminados ${eliminados} mensajes del topic ${topic} (no es luminaria)`);
-              }
-            } catch (error) {
-              this.logger.error(`Error al eliminar mensajes procesados no luminaria: ${error.message}`);
+            } catch {
+              // ignorar error al limpiar /procesado
             }
-            return; // No procesar ni guardar este mensaje
+            return;
           }
           // Si es de luminaria, continuar con el procesamiento normal
         }
@@ -815,7 +832,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async subscribe(topic: string, categoria?: 'chancado' | 'luminarias' | 'barreras' | 'otras_barreras' | 'otros' | 'prueba'): Promise<boolean> {
+  async subscribe(topic: string, categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar'): Promise<boolean> {
     if (!this.client || !this.isConnected) {
       this.logger.warn('No hay conexión MQTT activa');
       return false;
@@ -852,7 +869,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
                 const topicEntity = this.mqttSubscribedTopicRepository.create({
                   topic,
                   active: true,
-                  categoria: categoria || 'otros',
+                  categoria: categoria ?? 'sin_asignar',
                 });
                 await this.mqttSubscribedTopicRepository.save(topicEntity);
               }
@@ -870,7 +887,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async updateTopicCategory(topic: string, categoria: 'chancado' | 'luminarias' | 'barreras' | 'otras_barreras' | 'otros' | 'prueba'): Promise<boolean> {
+  async updateTopicCategory(topic: string, categoria: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar'): Promise<boolean> {
     try {
       const topicEntity = await this.mqttSubscribedTopicRepository.findOne({
         where: { topic },

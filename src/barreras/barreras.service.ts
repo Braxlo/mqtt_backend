@@ -36,7 +36,7 @@ export class BarrerasService {
       comandoEstado: b.comandoEstado,
       funcion: b.funcion,
       orden: b.orden,
-      categoria: b.categoria || 'otros',
+      categoria: b.categoria ?? 'sin_asignar',
     }));
   }
 
@@ -58,7 +58,7 @@ export class BarrerasService {
       comandoEstado: barrera.comandoEstado,
       funcion: barrera.funcion,
       orden: barrera.orden,
-      categoria: barrera.categoria || 'otros',
+      categoria: barrera.categoria ?? 'sin_asignar',
     };
   }
 
@@ -83,7 +83,7 @@ export class BarrerasService {
       comandoEstado: savedBarrera.comandoEstado,
       funcion: savedBarrera.funcion,
       orden: savedBarrera.orden,
-      categoria: savedBarrera.categoria || 'otros',
+      categoria: savedBarrera.categoria ?? 'sin_asignar',
     };
   }
 
@@ -97,6 +97,10 @@ export class BarrerasService {
     }
 
     Object.assign(barrera, updateBarreraDto);
+    // Asegurar que categoria se persista cuando viene en el DTO (evita que quede en "otros")
+    if (updateBarreraDto.categoria !== undefined && updateBarreraDto.categoria !== null) {
+      barrera.categoria = updateBarreraDto.categoria;
+    }
     const updatedBarrera = await this.barreraRepository.save(barrera);
     this.logger.log(`Barrera actualizada: ${updatedBarrera.nombre} (ID: ${id})`);
     return {
@@ -109,7 +113,7 @@ export class BarrerasService {
       comandoEstado: updatedBarrera.comandoEstado,
       funcion: updatedBarrera.funcion,
       orden: updatedBarrera.orden,
-      categoria: updatedBarrera.categoria || 'otros',
+      categoria: updatedBarrera.categoria ?? 'sin_asignar',
     };
   }
 

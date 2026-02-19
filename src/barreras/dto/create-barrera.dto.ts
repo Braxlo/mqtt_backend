@@ -45,6 +45,6 @@ export class CreateBarreraDto {
 
   @IsString({ message: 'La categoría debe ser una cadena de texto' })
   @IsOptional()
-  categoria?: 'chancado' | 'luminarias' | 'barreras' | 'otras_barreras' | 'otros' | 'prueba';
+  categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar';
 }
 

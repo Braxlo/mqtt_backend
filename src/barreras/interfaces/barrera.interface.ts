@@ -11,6 +11,6 @@ export interface ConfiguracionBarrera {
   comandoEstado?: string; // Comando/trama para consultar el estado de la barrera
   funcion?: 'entrada' | 'salida' | 'ambas'; // Función de la barrera: entrada, salida o ambas
   orden?: number; // Orden de visualización
-  categoria?: 'chancado' | 'luminarias' | 'barreras' | 'otras_barreras' | 'otros' | 'prueba'; // Categoría de la barrera
+  categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar'; // Categoría de la barrera (sin_asignar = no asignada)
 }
 

@@ -162,7 +162,7 @@ export class MqttController {
   @HttpCode(HttpStatus.OK)
   async updateTopicCategory(
     @Param('topic') topic: string,
-    @Body() body: { categoria: 'chancado' | 'luminarias' | 'barreras' | 'otras_barreras' | 'otros' | 'prueba' },
+    @Body() body: { categoria: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar' },
   ) {
     const decodedTopic = decodeURIComponent(topic);
     const success = await this.mqttService.updateTopicCategory(decodedTopic, body.categoria);

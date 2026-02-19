@@ -31,6 +31,7 @@ export class LetrerosService {
       nombre: l.nombre,
       topic: l.topic,
       tipoDispositivo: l.tipoDispositivo || 'PLC_S',
+      categoria: l.categoria ?? 'sin_asignar',
     }));
   }
 
@@ -47,6 +48,7 @@ export class LetrerosService {
       nombre: letrero.nombre,
       topic: letrero.topic,
       tipoDispositivo: letrero.tipoDispositivo || 'PLC_S',
+      categoria: letrero.categoria ?? 'sin_asignar',
     };
   }
 
@@ -58,6 +60,7 @@ export class LetrerosService {
       id: Date.now().toString(),
       tipoDispositivo: createLetreroDto.tipoDispositivo || 'PLC_S',
       ...createLetreroDto,
+      categoria: 'letreros', // Siempre se muestra en la página de Letreros
     });
     const savedLetrero = await this.letreroRepository.save(nuevoLetrero);
     this.logger.log(`Letrero creado: ${savedLetrero.nombre} (ID: ${savedLetrero.id}, Tipo: ${savedLetrero.tipoDispositivo})`);
@@ -66,6 +69,7 @@ export class LetrerosService {
       nombre: savedLetrero.nombre,
       topic: savedLetrero.topic,
       tipoDispositivo: savedLetrero.tipoDispositivo || 'PLC_S',
+      categoria: savedLetrero.categoria ?? 'sin_asignar',
     };
   }
 
@@ -79,17 +83,18 @@ export class LetrerosService {
     }
 
     Object.assign(letrero, updateLetreroDto);
-    // Si no se proporciona tipoDispositivo en la actualización, mantener el existente
     if (updateLetreroDto.tipoDispositivo === undefined) {
       letrero.tipoDispositivo = letrero.tipoDispositivo || 'PLC_S';
     }
+    letrero.categoria = 'letreros'; // Siempre se muestra en la página de Letreros
     const updatedLetrero = await this.letreroRepository.save(letrero);
-    this.logger.log(`Letrero actualizado: ${updatedLetrero.nombre} (ID: ${id}, Tipo: ${updatedLetrero.tipoDispositivo})`);
+    this.logger.log(`Letrero actualizado: ${updatedLetrero.nombre} (ID: ${id})`);
     return {
       id: updatedLetrero.id,
       nombre: updatedLetrero.nombre,
       topic: updatedLetrero.topic,
       tipoDispositivo: updatedLetrero.tipoDispositivo || 'PLC_S',
+      categoria: updatedLetrero.categoria ?? 'sin_asignar',
     };
   }
 

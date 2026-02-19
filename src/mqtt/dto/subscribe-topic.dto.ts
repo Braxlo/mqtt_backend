@@ -15,9 +15,9 @@ export class SubscribeTopicDto {
 
   @IsOptional()
   @IsString({ message: 'La categoría debe ser una cadena de texto' })
-  @IsIn(['chancado', 'luminarias', 'barreras', 'otras_barreras', 'otros', 'prueba'], {
-    message: 'La categoría debe ser una de: chancado, luminarias, barreras, otras_barreras, otros, prueba',
+  @IsIn(['chancado', 'luminarias', 'barreras', 'letreros', 'otras_barreras', 'otros', 'prueba', 'sin_asignar'], {
+    message: 'La categoría debe ser una de: chancado, luminarias, barreras, letreros, otras_barreras, otros, prueba, sin_asignar',
   })
-  categoria?: 'chancado' | 'luminarias' | 'barreras' | 'otras_barreras' | 'otros' | 'prueba';
+  categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar';
 }
 

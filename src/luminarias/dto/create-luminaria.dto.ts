@@ -20,5 +20,10 @@ export class CreateLuminariaDto {
   @IsString({ message: 'El tipo de dispositivo debe ser una cadena de texto' })
   @IsIn(['RPI', 'PLC_S', 'PLC_N'], { message: 'El tipo de dispositivo debe ser RPI, PLC_S o PLC_N' })
   tipoDispositivo?: 'RPI' | 'PLC_S' | 'PLC_N';
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['chancado', 'luminarias', 'barreras', 'letreros', 'otras_barreras', 'otros', 'prueba', 'sin_asignar'])
+  categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar';
 }
 

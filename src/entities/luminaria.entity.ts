@@ -31,6 +31,9 @@ export class Luminaria {
   })
   tipoDispositivo: 'RPI' | 'PLC_S' | 'PLC_N';
 
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar';
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

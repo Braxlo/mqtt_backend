@@ -31,6 +31,7 @@ export class LuminariasService {
       nombre: l.nombre,
       topic: l.topic,
       tipoDispositivo: l.tipoDispositivo || 'PLC_S',
+      categoria: l.categoria ?? 'sin_asignar',
     }));
   }
 
@@ -47,6 +48,7 @@ export class LuminariasService {
       nombre: luminaria.nombre,
       topic: luminaria.topic,
       tipoDispositivo: luminaria.tipoDispositivo || 'PLC_S',
+      categoria: luminaria.categoria ?? 'sin_asignar',
     };
   }
 
@@ -58,6 +60,7 @@ export class LuminariasService {
       id: Date.now().toString(),
       tipoDispositivo: createLuminariaDto.tipoDispositivo || 'PLC_S',
       ...createLuminariaDto,
+      categoria: 'luminarias', // Siempre se muestra en la página de Luminarias
     });
     const savedLuminaria = await this.luminariaRepository.save(nuevaLuminaria);
     this.logger.log(`Luminaria creada: ${savedLuminaria.nombre} (ID: ${savedLuminaria.id}, Tipo: ${savedLuminaria.tipoDispositivo})`);
@@ -66,6 +69,7 @@ export class LuminariasService {
       nombre: savedLuminaria.nombre,
       topic: savedLuminaria.topic,
       tipoDispositivo: savedLuminaria.tipoDispositivo || 'PLC_S',
+      categoria: savedLuminaria.categoria ?? 'sin_asignar',
     };
   }
 
@@ -79,17 +83,18 @@ export class LuminariasService {
     }
 
     Object.assign(luminaria, updateLuminariaDto);
-    // Si no se proporciona tipoDispositivo en la actualización, mantener el existente
     if (updateLuminariaDto.tipoDispositivo === undefined) {
       luminaria.tipoDispositivo = luminaria.tipoDispositivo || 'PLC_S';
     }
+    luminaria.categoria = 'luminarias'; // Siempre se muestra en la página de Luminarias
     const updatedLuminaria = await this.luminariaRepository.save(luminaria);
-    this.logger.log(`Luminaria actualizada: ${updatedLuminaria.nombre} (ID: ${id}, Tipo: ${updatedLuminaria.tipoDispositivo})`);
+    this.logger.log(`Luminaria actualizada: ${updatedLuminaria.nombre} (ID: ${id})`);
     return {
       id: updatedLuminaria.id,
       nombre: updatedLuminaria.nombre,
       topic: updatedLuminaria.topic,
       tipoDispositivo: updatedLuminaria.tipoDispositivo || 'PLC_S',
+      categoria: updatedLuminaria.categoria ?? 'sin_asignar',
     };
   }
 
