@@ -103,10 +103,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Detecta si un mensaje es una trama HSE del regulador de carga (luminaria)
+   * Detecta si un mensaje es una trama HSE del regulador de carga (luminaria).
+   * Acepta formato con bytes binarios o con bytes en texto (hex separado por espacios, ej. "HSE 260219 1816 ! 0B 02 1E B3 ...").
    */
   private esTramaHSE(buffer: Buffer): boolean {
-    const messageStr = buffer.toString('utf8', 0, Math.min(20, buffer.length));
+    const messageStr = buffer.toString('utf8', 0, Math.min(50, buffer.length));
     const patronHSE = /^HSE\s+\d{6}\s+\d{4}\s+/i;
     return patronHSE.test(messageStr);
   }
@@ -286,14 +287,22 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         ? `${horaStr.substring(0, 2)}:${horaStr.substring(2, 4)}`
         : horaStr;
 
-      // Extraer bytes binarios desde el inicio de los datos
-      const bytes: number[] = [];
-      for (let i = inicioDatos; i < buffer.length; i++) {
-        bytes.push(buffer[i]);
+      // Extraer bytes: soportar tanto binario como texto (hex separado por espacios, ej. "! 0B 02 1E B3 38 ...")
+      const restoStr = buffer.toString('utf8', inicioDatos, buffer.length).trim();
+      const hexPairsFromText = restoStr.match(/\b[0-9A-Fa-f]{2}\b/g);
+      let bytes: number[];
+      if (hexPairsFromText && hexPairsFromText.length >= 20) {
+        bytes = hexPairsFromText.map((hex) => parseInt(hex, 16));
+        this.logger.debug(`Trama HSE con bytes en texto (hex): ${bytes.length} bytes parseados`);
+      } else {
+        bytes = [];
+        for (let i = inicioDatos; i < buffer.length; i++) {
+          bytes.push(buffer[i]);
+        }
       }
 
       if (bytes.length < 20) {
-        this.logger.warn(`Trama HSE incompleta: solo ${bytes.length} bytes`);
+        this.logger.warn(`Trama HSE incompleta: solo ${bytes.length} bytes (mínimo 20)`);
         return null;
       }
 
