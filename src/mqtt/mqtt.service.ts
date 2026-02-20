@@ -130,9 +130,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Convierte un valor hexadecimal de 32 bits (4 bytes = 8 caracteres hex) a un número decimal
-   * Los 32 bits están divididos en High (4 chars) y Low (4 chars)
-   * Aplica la fórmula: (High * 65536 + Low) / 100
+   * Convierte un valor hexadecimal de 32 bits (4 bytes) a un número decimal
+   * High y Low son palabras de 16 bits. Fórmula: (High * 65536 + Low) / 100
+   * Ejemplo: High=0x0001, Low=0x2D8B → 77195 / 100 = 771.95
    */
   private convertirHex32BitsADecimal(hexHigh1: string, hexHigh2: string, hexLow1: string, hexLow2: string): number {
     try {
@@ -273,9 +273,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
    * Parsea una trama HSE del regulador de carga y retorna los valores convertidos
    * Formato: "HSE 260114 2353 " seguido de bytes binarios
    * Orden: VS, CS, SW (32 bits), VB, CB, LV, LC, LP (32 bits)
-   * IMPORTANTE: Para LM016, LM017, LM018, LM019 los bytes 32-bit vienen en Little-Endian (Low primero, High después)
+   * Conversión 32 bits: High word y Low word → valor = (High * 65536 + Low) / 100 (ej. 0x0001 0x2D8B → 77195/100 = 771.95)
+   * IMPORTANTE: LM016-019 y letreros envían bytes en Little-Endian (Low primero, High después; ej. 2D 8B 00 01)
    */
-  private parsearTramaHSE(buffer: Buffer, topic?: string): any | null {
+  private parsearTramaHSE(buffer: Buffer, topic?: string, esLetrero?: boolean): any | null {
     try {
       const messageStr = buffer.toString('binary');
       const cleaned = messageStr.trim();
@@ -376,10 +377,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       }
 
       // Byte 4-7: SW [W] - Potencia Solar (32 bits)
-      // IMPORTANTE: Para LM016-019, los bytes vienen en Little-Endian (Low primero, High después)
-      // En el mensaje: byte 4-5 = Low, byte 6-7 = High
-      // La función espera: High primero, Low después
-      const esLittleEndian = topic ? this.esLuminariaLittleEndian(topic) : false;
+      // Little-Endian: en el mensaje byte 4-5 = Low, byte 6-7 = High → valor = (High*65536+Low)/100
+      const esLittleEndian = (topic ? this.esLuminariaLittleEndian(topic) : false) || !!esLetrero;
       if (hexValues.length >= 8) {
         if (esLittleEndian) {
           // Orden Little-Endian: Low primero, High después en el mensaje
@@ -416,11 +415,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         datos.corrienteCargas = this.convertirHexADecimal(hexValues[14], hexValues[15]);
       }
 
-      // Byte 16-19: LP [W] - Potencia Cargas / Luminosidad (32 bits)
-      // IMPORTANTE: Para LM016-019, los bytes vienen en Little-Endian (Low primero, High después)
-      // En el mensaje: byte 16-17 = Low, byte 18-19 = High
-      // La función espera: High primero, Low después
-      // Ejemplo: 2D 8B 00 01 → Low=2D8B (11659), High=0001 (1) → (1*65536 + 11659)/100 = 771.95
+      // Byte 16-19: LP [W] - Potencia Cargas (32 bits)
+      // Misma conversión: (High*65536+Low)/100. Little-Endian: bytes 16-17=Low, 18-19=High
       if (hexValues.length >= 20) {
         if (esLittleEndian) {
           // Orden Little-Endian: Low primero, High después en el mensaje
@@ -678,7 +674,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
             const procesarComoPLC = tipoDispositivo === 'PLC_S' || tipoDispositivo === 'PLC_N' || !tipoDispositivo;
             if (procesarComoPLC) {
               this.logger.debug(`Procesando señal HSE para ${tipoEntidad} ${topic} (tipo: ${tipoDispositivo || 'PLC_S'})`);
-              const datosConvertidos = this.parsearTramaHSE(message, topic);
+              const esLetreroEntidad = tipoEntidad === 'letrero';
+              const datosConvertidos = this.parsearTramaHSE(message, topic, esLetreroEntidad);
               if (datosConvertidos && this.client && this.isConnected) {
                 const topicProcesado = `${topic}/procesado`;
                 const mensajeProcesado = JSON.stringify(datosConvertidos);
