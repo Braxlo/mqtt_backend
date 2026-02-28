@@ -31,6 +31,7 @@ export class LetrerosService {
       nombre: l.nombre,
       topic: l.topic,
       tipoDispositivo: l.tipoDispositivo || 'PLC_S',
+      tipoBateria: l.tipoBateria || '48V',
       categoria: l.categoria ?? 'sin_asignar',
     }));
   }
@@ -48,6 +49,7 @@ export class LetrerosService {
       nombre: letrero.nombre,
       topic: letrero.topic,
       tipoDispositivo: letrero.tipoDispositivo || 'PLC_S',
+      tipoBateria: letrero.tipoBateria || '48V',
       categoria: letrero.categoria ?? 'sin_asignar',
     };
   }
@@ -62,6 +64,7 @@ export class LetrerosService {
       topic,
       nombre: createLetreroDto.nombre,
       tipoDispositivo: createLetreroDto.tipoDispositivo || 'PLC_S',
+      tipoBateria: createLetreroDto.tipoBateria || '48V',
       categoria: 'letreros', // Siempre se muestra en la página de Letreros
     });
     const savedLetrero = await this.letreroRepository.save(nuevoLetrero);
@@ -71,6 +74,7 @@ export class LetrerosService {
       nombre: savedLetrero.nombre,
       topic: savedLetrero.topic,
       tipoDispositivo: savedLetrero.tipoDispositivo || 'PLC_S',
+      tipoBateria: savedLetrero.tipoBateria || '48V',
       categoria: savedLetrero.categoria ?? 'sin_asignar',
     };
   }
@@ -91,6 +95,9 @@ export class LetrerosService {
     if (updateLetreroDto.tipoDispositivo === undefined) {
       letrero.tipoDispositivo = letrero.tipoDispositivo || 'PLC_S';
     }
+    if (updateLetreroDto.tipoBateria === undefined) {
+      letrero.tipoBateria = letrero.tipoBateria || '48V';
+    }
     letrero.categoria = 'letreros'; // Siempre se muestra en la página de Letreros
     const updatedLetrero = await this.letreroRepository.save(letrero);
     this.logger.log(`Letrero actualizado: ${updatedLetrero.nombre} (ID: ${id})`);
@@ -99,6 +106,7 @@ export class LetrerosService {
       nombre: updatedLetrero.nombre,
       topic: updatedLetrero.topic,
       tipoDispositivo: updatedLetrero.tipoDispositivo || 'PLC_S',
+      tipoBateria: updatedLetrero.tipoBateria || '48V',
       categoria: updatedLetrero.categoria ?? 'sin_asignar',
     };
   }

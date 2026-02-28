@@ -36,6 +36,7 @@ export class BarrerasService {
       comandoEstado: b.comandoEstado,
       funcion: b.funcion,
       orden: b.orden,
+      tipoBateria: b.tipoBateria || '48V',
       categoria: b.categoria ?? 'sin_asignar',
     }));
   }
@@ -58,6 +59,7 @@ export class BarrerasService {
       comandoEstado: barrera.comandoEstado,
       funcion: barrera.funcion,
       orden: barrera.orden,
+      tipoBateria: barrera.tipoBateria || '48V',
       categoria: barrera.categoria ?? 'sin_asignar',
     };
   }
@@ -68,6 +70,7 @@ export class BarrerasService {
   async create(createBarreraDto: CreateBarreraDto): Promise<ConfiguracionBarrera> {
     const nuevaBarrera = this.barreraRepository.create({
       id: Date.now().toString(),
+      tipoBateria: createBarreraDto.tipoBateria || '48V',
       ...createBarreraDto,
       urlCamara: createBarreraDto.urlCamara || '',
     });
@@ -83,6 +86,7 @@ export class BarrerasService {
       comandoEstado: savedBarrera.comandoEstado,
       funcion: savedBarrera.funcion,
       orden: savedBarrera.orden,
+      tipoBateria: savedBarrera.tipoBateria || '48V',
       categoria: savedBarrera.categoria ?? 'sin_asignar',
     };
   }
@@ -113,6 +117,7 @@ export class BarrerasService {
       comandoEstado: updatedBarrera.comandoEstado,
       funcion: updatedBarrera.funcion,
       orden: updatedBarrera.orden,
+      tipoBateria: updatedBarrera.tipoBateria || '48V',
       categoria: updatedBarrera.categoria ?? 'sin_asignar',
     };
   }

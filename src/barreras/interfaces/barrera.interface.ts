@@ -11,6 +11,7 @@ export interface ConfiguracionBarrera {
   comandoEstado?: string; // Comando/trama para consultar el estado de la barrera
   funcion?: 'entrada' | 'salida' | 'ambas'; // Función de la barrera: entrada, salida o ambas
   orden?: number; // Orden de visualización
+  tipoBateria?: '24V' | '48V'; // Define umbrales de alerta para reporte de energía (precaución/crítico)
   categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar'; // Categoría de la barrera (sin_asignar = no asignada)
 }
 

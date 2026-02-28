@@ -31,6 +31,14 @@ export class Luminaria {
   })
   tipoDispositivo: 'RPI' | 'PLC_S' | 'PLC_N';
 
+  @Column({ 
+    type: 'varchar', 
+    length: 5, 
+    default: '48V',
+    comment: 'Tipo de batería: 24V (ej. letrero Esperanza Sur) o 48V (luminarias, letrero DES). Define umbrales de alerta (precaución/crítico).'
+  })
+  tipoBateria: '24V' | '48V';
+
   @Column({ type: 'varchar', length: 50, nullable: true })
   categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar';
 

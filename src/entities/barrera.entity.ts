@@ -41,6 +41,14 @@ export class Barrera {
   @Column({ type: 'integer', default: 0 })
   orden: number;
 
+  @Column({ 
+    type: 'varchar', 
+    length: 5, 
+    default: '48V',
+    comment: 'Tipo de batería: 24V o 48V. Define umbrales de alerta para el reporte de energía (precaución/crítico).'
+  })
+  tipoBateria: '24V' | '48V';
+
   @Column({ type: 'varchar', length: 50, nullable: true })
   categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar';
 

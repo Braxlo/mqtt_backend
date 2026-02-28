@@ -31,6 +31,7 @@ export class LuminariasService {
       nombre: l.nombre,
       topic: l.topic,
       tipoDispositivo: l.tipoDispositivo || 'PLC_S',
+      tipoBateria: l.tipoBateria || '48V',
       categoria: l.categoria ?? 'sin_asignar',
     }));
   }
@@ -48,6 +49,7 @@ export class LuminariasService {
       nombre: luminaria.nombre,
       topic: luminaria.topic,
       tipoDispositivo: luminaria.tipoDispositivo || 'PLC_S',
+      tipoBateria: luminaria.tipoBateria || '48V',
       categoria: luminaria.categoria ?? 'sin_asignar',
     };
   }
@@ -59,6 +61,7 @@ export class LuminariasService {
     const nuevaLuminaria = this.luminariaRepository.create({
       id: Date.now().toString(),
       tipoDispositivo: createLuminariaDto.tipoDispositivo || 'PLC_S',
+      tipoBateria: createLuminariaDto.tipoBateria || '48V',
       ...createLuminariaDto,
       categoria: 'luminarias', // Siempre se muestra en la página de Luminarias
     });
@@ -69,6 +72,7 @@ export class LuminariasService {
       nombre: savedLuminaria.nombre,
       topic: savedLuminaria.topic,
       tipoDispositivo: savedLuminaria.tipoDispositivo || 'PLC_S',
+      tipoBateria: savedLuminaria.tipoBateria || '48V',
       categoria: savedLuminaria.categoria ?? 'sin_asignar',
     };
   }
@@ -86,6 +90,9 @@ export class LuminariasService {
     if (updateLuminariaDto.tipoDispositivo === undefined) {
       luminaria.tipoDispositivo = luminaria.tipoDispositivo || 'PLC_S';
     }
+    if (updateLuminariaDto.tipoBateria === undefined) {
+      luminaria.tipoBateria = luminaria.tipoBateria || '48V';
+    }
     luminaria.categoria = 'luminarias'; // Siempre se muestra en la página de Luminarias
     const updatedLuminaria = await this.luminariaRepository.save(luminaria);
     this.logger.log(`Luminaria actualizada: ${updatedLuminaria.nombre} (ID: ${id})`);
@@ -94,6 +101,7 @@ export class LuminariasService {
       nombre: updatedLuminaria.nombre,
       topic: updatedLuminaria.topic,
       tipoDispositivo: updatedLuminaria.tipoDispositivo || 'PLC_S',
+      tipoBateria: updatedLuminaria.tipoBateria || '48V',
       categoria: updatedLuminaria.categoria ?? 'sin_asignar',
     };
   }

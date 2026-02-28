@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, MaxLength, MinLength } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, MaxLength, MinLength, IsIn } from 'class-validator';
 
 /**
  * DTO para crear una nueva barrera
@@ -42,6 +42,11 @@ export class CreateBarreraDto {
 
   @IsOptional()
   orden?: number;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['24V', '48V'], { message: 'El tipo de batería debe ser 24V o 48V' })
+  tipoBateria?: '24V' | '48V';
 
   @IsString({ message: 'La categoría debe ser una cadena de texto' })
   @IsOptional()

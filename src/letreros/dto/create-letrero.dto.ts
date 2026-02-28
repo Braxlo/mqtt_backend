@@ -23,6 +23,11 @@ export class CreateLetreroDto {
 
   @IsOptional()
   @IsString()
+  @IsIn(['24V', '48V'], { message: 'El tipo de batería debe ser 24V o 48V' })
+  tipoBateria?: '24V' | '48V';
+
+  @IsOptional()
+  @IsString()
   @IsIn(['chancado', 'luminarias', 'barreras', 'letreros', 'otras_barreras', 'otros', 'prueba', 'sin_asignar'])
   categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar';
 }
