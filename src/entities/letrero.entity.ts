@@ -27,9 +27,9 @@ export class Letrero {
     type: 'varchar', 
     length: 10, 
     default: 'PLC_S',
-    comment: 'Tipo de dispositivo de entrada: RPI (Raspberry Pi - datos ya procesados), PLC_S (PLC Siemens - requiere procesamiento), PLC_N (PLC Nitz - pendiente)'
+    comment: 'Tipo de dispositivo de entrada: RPI (datos ya procesados), PLC_S (PLC Siemens), PLC_N (PLC Nitz), DWORD (32 bits IEEE 754)'
   })
-  tipoDispositivo: 'RPI' | 'PLC_S' | 'PLC_N';
+  tipoDispositivo: 'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD';
 
   @Column({ 
     type: 'varchar', 

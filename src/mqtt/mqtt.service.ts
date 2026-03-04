@@ -193,7 +193,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
    * @param topic Topic MQTT de la luminaria
    * @returns Tipo de dispositivo: 'RPI', 'PLC_S', 'PLC_N' o null si no se encuentra
    */
-  private async obtenerTipoDispositivoLuminaria(topic: string): Promise<'RPI' | 'PLC_S' | 'PLC_N' | null> {
+  private async obtenerTipoDispositivoLuminaria(topic: string): Promise<'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD' | null> {
     try {
       const luminaria = await this.luminariaRepository.findOne({
         where: { topic },
@@ -240,7 +240,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
    * Obtiene el tipo de dispositivo de un letrero por su topic.
    * Si está configurado como PLC_S (Requiere procesamiento), se usa la misma lógica que para luminarias.
    */
-  private async obtenerTipoDispositivoLetrero(topic: string): Promise<'RPI' | 'PLC_S' | 'PLC_N' | null> {
+  private async obtenerTipoDispositivoLetrero(topic: string): Promise<'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD' | null> {
     try {
       const topicNorm = (topic || '').trim().toLowerCase();
       let letrero = await this.letreroRepository.findOne({
@@ -305,10 +305,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Parsea una trama HSE o HSP del regulador de carga y retorna los valores convertidos
-   * HSE: VS,CS 2B; SW 4B; VB,CB,LV,LC 2B; LP 4B
+   * HSE: VS,CS 2B; SW 4B; VB,CB,LV,LC 2B; LP 4B. Si tipoDispositivo=DWORD, SW y LP se interpretan como IEEE 754.
    * HSP: 8×4 bytes, todos IEEE 754 float (VS, CS, SW, VB, CB, LV, LC, LP)
    */
-  private parsearTramaHSE(buffer: Buffer, topic?: string, esLetrero?: boolean): any | null {
+  private parsearTramaHSE(buffer: Buffer, topic?: string, esLetrero?: boolean, tipoDispositivo?: 'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD' | null): any | null {
     try {
       const messageStr = buffer.toString('binary');
       const cleaned = messageStr.trim();
@@ -406,9 +406,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       if (hexValues.length >= 4) datos.corrienteSolar = this.convertirHexADecimal(hexValues[2], hexValues[3]);
 
       // Byte 4-7: SW [W] - Potencia Solar (32 bits)
-      // Little-Endian: byte 4-5 = Low, byte 6-7 = High. Algunos envían IEEE 754 (41CF D70A → 25.98)
+      // DWORD: interpretar como IEEE 754. Si no, usar esLuminariaIEEE754(topic) o entero escalado
       const esLittleEndian = (topic ? this.esLuminariaLittleEndian(topic) : false) || !!esLetrero;
-      const usaIEEE754 = topic ? this.esLuminariaIEEE754(topic) : false;
+      const usaIEEE754 = tipoDispositivo === 'DWORD' || (topic ? this.esLuminariaIEEE754(topic) : false);
       if (hexValues.length >= 8) {
         if (usaIEEE754) {
           if (esLittleEndian) {
@@ -692,16 +692,16 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           const esLuminaria = await this.esTopicLuminaria(topic);
           const esLetrero = await this.esTopicLetrero(topic);
 
-          const procesarHSE = async (tipoDispositivo: 'RPI' | 'PLC_S' | 'PLC_N' | null, tipoEntidad: string) => {
+          const procesarHSE = async (tipoDispositivo: 'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD' | null, tipoEntidad: string) => {
             if (tipoDispositivo === 'RPI') {
               this.logger.debug(`Mensaje de RPI recibido en ${topic} (${tipoEntidad}) - datos ya procesados`);
               return;
             }
-            const procesarComoPLC = tipoDispositivo === 'PLC_S' || tipoDispositivo === 'PLC_N' || !tipoDispositivo;
+            const procesarComoPLC = tipoDispositivo === 'PLC_S' || tipoDispositivo === 'PLC_N' || tipoDispositivo === 'DWORD' || !tipoDispositivo;
             if (procesarComoPLC) {
-              this.logger.debug(`Procesando señal HSE para ${tipoEntidad} ${topic} (tipo: ${tipoDispositivo || 'PLC_S'})`);
+              this.logger.debug(`Procesando señal HSE/HSP para ${tipoEntidad} ${topic} (tipo: ${tipoDispositivo || 'PLC_S'})`);
               const esLetreroEntidad = tipoEntidad === 'letrero';
-              const datosConvertidos = this.parsearTramaHSE(message, topic, esLetreroEntidad);
+              const datosConvertidos = this.parsearTramaHSE(message, topic, esLetreroEntidad, tipoDispositivo);
               if (datosConvertidos && this.client && this.isConnected) {
                 const topicProcesado = `${topic}/procesado`;
                 const mensajeProcesado = JSON.stringify(datosConvertidos);
