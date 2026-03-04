@@ -104,13 +104,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Detecta si un mensaje es una trama HSE del regulador de carga (luminaria).
-   * Acepta formato con bytes binarios o con bytes en texto (hex separado por espacios, ej. "HSE 260219 1816 ! 0B 02 1E B3 ...").
+   * Detecta si un mensaje es una trama HSE o HSP del regulador de carga (luminaria).
+   * HSE: formato antiguo. HSP: 8×4 bytes IEEE 754 (VS, CS, SW, VB, CB, LV, LC, LP).
    */
   private esTramaHSE(buffer: Buffer): boolean {
     const messageStr = buffer.toString('utf8', 0, Math.min(50, buffer.length));
-    const patronHSE = /^HSE\s+\d{6}\s+\d{4}\s+/i;
-    return patronHSE.test(messageStr);
+    const patron = /^(HSE|HSP)\s+\d{6}\s+\d{4}\s+/i;
+    return patron.test(messageStr);
   }
 
   /**
@@ -270,31 +270,59 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Parsea una trama HSE del regulador de carga y retorna los valores convertidos
-   * Formato: "HSE 260114 2353 " seguido de bytes binarios
-   * Orden: VS, CS, SW (32 bits), VB, CB, LV, LC, LP (32 bits)
-   * Conversión 32 bits: High word y Low word → valor = (High * 65536 + Low) / 100 (ej. 0x0001 0x2D8B → 77195/100 = 771.95)
-   * IMPORTANTE: LM016-019 y letreros envían bytes en Little-Endian (Low primero, High después; ej. 2D 8B 00 01)
+   * Verifica si un topic envía DWORD como float IEEE 754 en lugar de entero escalado.
+   * IEEE 754: signo (1 bit) + exponente (8 bits) + mantisa (23 bits). Ej: 41CF D70A → 25.98
+   */
+  private esLuminariaIEEE754(topic: string): boolean {
+    return false; // Cambiar a this.esLuminariaLittleEndian(topic) si aplica
+  }
+
+  /**
+   * Convierte un DWORD (32 bits hex) a float IEEE 754.
+   * Usa Buffer para interpretar los bits según el estándar IEEE 754.
+   */
+  private convertirDwordAIEEE754Float(
+    hexHigh1: string, hexHigh2: string, hexLow1: string, hexLow2: string,
+    littleEndian: boolean = false
+  ): number {
+    try {
+      const valorHigh = parseInt(hexHigh1 + hexHigh2, 16);
+      const valorLow = parseInt(hexLow1 + hexLow2, 16);
+      const dword = (valorHigh << 16) | valorLow;
+
+      const buffer = Buffer.alloc(4);
+      if (littleEndian) {
+        buffer.writeUInt32LE(dword, 0);
+        return Math.round(buffer.readFloatLE(0) * 100) / 100;
+      }
+      buffer.writeUInt32BE(dword, 0);
+      return Math.round(buffer.readFloatBE(0) * 100) / 100;
+    } catch (error) {
+      this.logger.error("Error al convertir DWORD a IEEE 754 float:", error);
+      return 0;
+    }
+  }
+
+  /**
+   * Parsea una trama HSE o HSP del regulador de carga y retorna los valores convertidos
+   * HSE: VS,CS 2B; SW 4B; VB,CB,LV,LC 2B; LP 4B
+   * HSP: 8×4 bytes, todos IEEE 754 float (VS, CS, SW, VB, CB, LV, LC, LP)
    */
   private parsearTramaHSE(buffer: Buffer, topic?: string, esLetrero?: boolean): any | null {
     try {
       const messageStr = buffer.toString('binary');
       const cleaned = messageStr.trim();
 
-      if (!cleaned.toUpperCase().startsWith("HSE")) {
-        return null;
-      }
+      const esHSP = cleaned.toUpperCase().startsWith("HSP");
+      const esHSE = cleaned.toUpperCase().startsWith("HSE");
+      if (!esHSP && !esHSE) return null;
 
-      // Buscar el patrón HSE + fecha + hora + espacio
-      const patronHSE = /^HSE\s+(\d{6})\s+(\d{4})\s+/i;
-      const match = cleaned.match(patronHSE);
-      
-      if (!match) {
-        return null;
-      }
+      const patron = /^(HSE|HSP)\s+(\d{6})\s+(\d{4})\s+/i;
+      const match = cleaned.match(patron);
+      if (!match) return null;
 
-      const fechaStr = match[1];
-      const horaStr = match[2];
+      const fechaStr = match[2];
+      const horaStr = match[3];
       const inicioDatos = match[0].length;
 
       // Formatear fecha - detectar automáticamente si es DDMMYY o YYMMDD
@@ -339,96 +367,94 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         ? `${horaStr.substring(0, 2)}:${horaStr.substring(2, 4)}`
         : horaStr;
 
-      // Extraer bytes: soportar tanto binario como texto (hex separado por espacios, ej. "! 0B 02 1E B3 38 ...")
+      // Extraer bytes: soportar binario o texto hex (ej. "42 8E 7A E1 ...")
       const restoStr = buffer.toString('utf8', inicioDatos, buffer.length).trim();
       const hexPairsFromText = restoStr.match(/\b[0-9A-Fa-f]{2}\b/g);
+      const minBytes = esHSP ? 32 : 20;
       let bytes: number[];
-      if (hexPairsFromText && hexPairsFromText.length >= 20) {
+      if (hexPairsFromText && hexPairsFromText.length >= minBytes) {
         bytes = hexPairsFromText.map((hex) => parseInt(hex, 16));
-        this.logger.debug(`Trama HSE con bytes en texto (hex): ${bytes.length} bytes parseados`);
+        this.logger.debug(`Trama ${esHSP ? 'HSP' : 'HSE'} con bytes en texto (hex): ${bytes.length} bytes`);
       } else {
         bytes = [];
-        for (let i = inicioDatos; i < buffer.length; i++) {
-          bytes.push(buffer[i]);
-        }
+        for (let i = inicioDatos; i < buffer.length; i++) bytes.push(buffer[i]);
       }
 
-      if (bytes.length < 20) {
-        this.logger.warn(`Trama HSE incompleta: solo ${bytes.length} bytes (mínimo 20)`);
+      if (bytes.length < minBytes) {
+        this.logger.warn(`Trama ${esHSP ? 'HSP' : 'HSE'} incompleta: ${bytes.length} bytes (mínimo ${minBytes})`);
         return null;
       }
 
       const hexValues = bytes.map(b => b.toString(16).padStart(2, '0').toUpperCase());
+      const datos: any = { fecha, hora, timestamp: new Date().toISOString() };
 
-      const datos: any = {
-        fecha,
-        hora,
-        timestamp: new Date().toISOString(),
-      };
-
-      // Byte 0-1: VS [V] - Voltaje Solar
-      if (hexValues.length >= 2) {
-        datos.voltajeSolar = this.convertirHexADecimal(hexValues[0], hexValues[1]);
+      // Formato HSP: 8×4 bytes IEEE 754 (big-endian)
+      if (esHSP && hexValues.length >= 32) {
+        datos.voltajeSolar = this.convertirDwordAIEEE754Float(hexValues[0], hexValues[1], hexValues[2], hexValues[3], false);
+        datos.corrienteSolar = this.convertirDwordAIEEE754Float(hexValues[4], hexValues[5], hexValues[6], hexValues[7], false);
+        datos.potenciaSolar = this.convertirDwordAIEEE754Float(hexValues[8], hexValues[9], hexValues[10], hexValues[11], false);
+        datos.voltajeBateria = this.convertirDwordAIEEE754Float(hexValues[12], hexValues[13], hexValues[14], hexValues[15], false);
+        datos.corrienteBateria = this.convertirDwordAIEEE754Float(hexValues[16], hexValues[17], hexValues[18], hexValues[19], false);
+        datos.voltajeCargas = this.convertirDwordAIEEE754Float(hexValues[20], hexValues[21], hexValues[22], hexValues[23], false);
+        datos.corrienteCargas = this.convertirDwordAIEEE754Float(hexValues[24], hexValues[25], hexValues[26], hexValues[27], false);
+        datos.potenciaCargas = this.convertirDwordAIEEE754Float(hexValues[28], hexValues[29], hexValues[30], hexValues[31], false);
+        return datos;
       }
 
-      // Byte 2-3: CS [A] - Corriente Solar
-      if (hexValues.length >= 4) {
-        datos.corrienteSolar = this.convertirHexADecimal(hexValues[2], hexValues[3]);
-      }
+      // Formato HSE: VS,CS 2B; SW 4B; VB,CB,LV,LC 2B; LP 4B
+      if (hexValues.length >= 2) datos.voltajeSolar = this.convertirHexADecimal(hexValues[0], hexValues[1]);
+      if (hexValues.length >= 4) datos.corrienteSolar = this.convertirHexADecimal(hexValues[2], hexValues[3]);
 
       // Byte 4-7: SW [W] - Potencia Solar (32 bits)
-      // Little-Endian: en el mensaje byte 4-5 = Low, byte 6-7 = High → valor = (High*65536+Low)/100
+      // Little-Endian: byte 4-5 = Low, byte 6-7 = High. Algunos envían IEEE 754 (41CF D70A → 25.98)
       const esLittleEndian = (topic ? this.esLuminariaLittleEndian(topic) : false) || !!esLetrero;
+      const usaIEEE754 = topic ? this.esLuminariaIEEE754(topic) : false;
       if (hexValues.length >= 8) {
-        if (esLittleEndian) {
-          // Orden Little-Endian: Low primero, High después en el mensaje
+        if (usaIEEE754) {
+          if (esLittleEndian) {
+            datos.potenciaSolar = this.convertirDwordAIEEE754Float(
+              hexValues[6], hexValues[7], hexValues[4], hexValues[5], true
+            );
+          } else {
+            datos.potenciaSolar = this.convertirDwordAIEEE754Float(
+              hexValues[4], hexValues[5], hexValues[6], hexValues[7], false
+            );
+          }
+        } else if (esLittleEndian) {
           datos.potenciaSolar = this.convertirHex32BitsADecimal(
-            hexValues[6], hexValues[7],  // High (bytes 6-7 del mensaje)
-            hexValues[4], hexValues[5]   // Low (bytes 4-5 del mensaje)
+            hexValues[6], hexValues[7], hexValues[4], hexValues[5]
           );
         } else {
-          // Orden Big-Endian estándar: High primero, Low después en el mensaje
           datos.potenciaSolar = this.convertirHex32BitsADecimal(
-            hexValues[4], hexValues[5],  // High
-            hexValues[6], hexValues[7]   // Low
+            hexValues[4], hexValues[5], hexValues[6], hexValues[7]
           );
         }
       }
 
-      // Byte 8-9: VB [V] - Voltaje Batería
-      if (hexValues.length >= 10) {
-        datos.voltajeBateria = this.convertirHexADecimal(hexValues[8], hexValues[9]);
-      }
-
-      // Byte 10-11: CB [A] - Corriente Batería
-      if (hexValues.length >= 12) {
-        datos.corrienteBateria = this.convertirHexADecimal(hexValues[10], hexValues[11]);
-      }
-
-      // Byte 12-13: LV [V] - Voltaje Cargas
-      if (hexValues.length >= 14) {
-        datos.voltajeCargas = this.convertirHexADecimal(hexValues[12], hexValues[13]);
-      }
-
-      // Byte 14-15: LC [A] - Corriente Cargas
-      if (hexValues.length >= 16) {
-        datos.corrienteCargas = this.convertirHexADecimal(hexValues[14], hexValues[15]);
-      }
+      if (hexValues.length >= 10) datos.voltajeBateria = this.convertirHexADecimal(hexValues[8], hexValues[9]);
+      if (hexValues.length >= 12) datos.corrienteBateria = this.convertirHexADecimal(hexValues[10], hexValues[11]);
+      if (hexValues.length >= 14) datos.voltajeCargas = this.convertirHexADecimal(hexValues[12], hexValues[13]);
+      if (hexValues.length >= 16) datos.corrienteCargas = this.convertirHexADecimal(hexValues[14], hexValues[15]);
 
       // Byte 16-19: LP [W] - Potencia Cargas (32 bits)
-      // Misma conversión: (High*65536+Low)/100. Little-Endian: bytes 16-17=Low, 18-19=High
       if (hexValues.length >= 20) {
-        if (esLittleEndian) {
-          // Orden Little-Endian: Low primero, High después en el mensaje
+        if (usaIEEE754) {
+          if (esLittleEndian) {
+            datos.potenciaCargas = this.convertirDwordAIEEE754Float(
+              hexValues[18], hexValues[19], hexValues[16], hexValues[17], true
+            );
+          } else {
+            datos.potenciaCargas = this.convertirDwordAIEEE754Float(
+              hexValues[16], hexValues[17], hexValues[18], hexValues[19], false
+            );
+          }
+        } else if (esLittleEndian) {
           datos.potenciaCargas = this.convertirHex32BitsADecimal(
-            hexValues[18], hexValues[19],  // High (bytes 18-19 del mensaje)
-            hexValues[16], hexValues[17]   // Low (bytes 16-17 del mensaje)
+            hexValues[18], hexValues[19], hexValues[16], hexValues[17]
           );
         } else {
-          // Orden Big-Endian estándar: High primero, Low después en el mensaje
           datos.potenciaCargas = this.convertirHex32BitsADecimal(
-            hexValues[16], hexValues[17],  // High
-            hexValues[18], hexValues[19]  // Low
+            hexValues[16], hexValues[17], hexValues[18], hexValues[19]
           );
         }
       }
