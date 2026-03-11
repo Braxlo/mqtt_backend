@@ -104,13 +104,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Detecta si un mensaje es una trama HSE o HSP del regulador de carga (luminaria).
-   * HSE: formato antiguo. HSP: 8×4 bytes IEEE 754 (VS, CS, SW, VB, CB, LV, LC, LP).
+   * Detecta si un mensaje es una trama HSE del regulador de carga (luminaria).
+   * Acepta formato con bytes binarios o con bytes en texto (hex separado por espacios, ej. "HSE 260219 1816 ! 0B 02 1E B3 ...").
    */
   private esTramaHSE(buffer: Buffer): boolean {
     const messageStr = buffer.toString('utf8', 0, Math.min(50, buffer.length));
-    const patron = /^(HSE|HSP)\s+\d{6}\s+\d{4}\s+/i;
-    return patron.test(messageStr);
+    const patronHSE = /^HSE\s+\d{6}\s+\d{4}\s+/i;
+    return patronHSE.test(messageStr);
   }
 
   /**
@@ -147,6 +147,32 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       return Math.round(valorFinal * 100) / 100; // Redondear a 2 decimales
     } catch (error) {
       this.logger.error("Error al convertir hexadecimal de 32 bits:", error);
+      return 0;
+    }
+  }
+
+  /**
+   * Convierte un DWORD (4 bytes hex) a float IEEE 754 (Real).
+   * Usado por tramas HSE con 32 bytes (8× DWORD) o tipo DWORD.
+   */
+  private convertirDwordAIEEE754Float(
+    hexHigh1: string, hexHigh2: string, hexLow1: string, hexLow2: string,
+    littleEndian: boolean = false
+  ): number {
+    try {
+      const valorHigh = parseInt(hexHigh1 + hexHigh2, 16);
+      const valorLow = parseInt(hexLow1 + hexLow2, 16);
+      const dword = (valorHigh << 16) | valorLow;
+
+      const buffer = Buffer.alloc(4);
+      if (littleEndian) {
+        buffer.writeUInt32LE(dword, 0);
+        return Math.round(buffer.readFloatLE(0) * 100) / 100;
+      }
+      buffer.writeUInt32BE(dword, 0);
+      return Math.round(buffer.readFloatBE(0) * 100) / 100;
+    } catch (error) {
+      this.logger.error('Error al convertir DWORD a IEEE 754 float:', error);
       return 0;
     }
   }
@@ -193,16 +219,23 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
    * @param topic Topic MQTT de la luminaria
    * @returns Tipo de dispositivo: 'RPI', 'PLC_S', 'PLC_N' o null si no se encuentra
    */
-  private async obtenerTipoDispositivoLuminaria(topic: string): Promise<'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD' | null> {
+  private async obtenerTipoDispositivoLuminaria(topic: string): Promise<'RPI' | 'PLC_S' | 'PLC_N' | null> {
     try {
       const luminaria = await this.luminariaRepository.findOne({
         where: { topic },
       });
-      
+
       if (luminaria) {
-        return luminaria.tipoDispositivo || 'PLC_S'; // Default a PLC_S para compatibilidad
+        const tipo = luminaria.tipoDispositivo as 'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD' | null | undefined;
+
+        if (tipo === 'DWORD' || !tipo) {
+          // Default a PLC_S para compatibilidad
+          return 'PLC_S';
+        }
+
+        return tipo;
       }
-      
+
       return null;
     } catch (error) {
       this.logger.error(`Error al obtener tipo de dispositivo para topic ${topic}: ${error.message}`);
@@ -240,7 +273,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
    * Obtiene el tipo de dispositivo de un letrero por su topic.
    * Si está configurado como PLC_S (Requiere procesamiento), se usa la misma lógica que para luminarias.
    */
-  private async obtenerTipoDispositivoLetrero(topic: string): Promise<'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD' | null> {
+  private async obtenerTipoDispositivoLetrero(topic: string): Promise<'RPI' | 'PLC_S' | 'PLC_N' | null> {
     try {
       const topicNorm = (topic || '').trim().toLowerCase();
       let letrero = await this.letreroRepository.findOne({
@@ -251,7 +284,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         letrero = todos.find((l) => (l.topic || '').trim().toLowerCase() === topicNorm) ?? null;
       }
       if (letrero) {
-        return letrero.tipoDispositivo || 'PLC_S';
+        const tipo = letrero.tipoDispositivo as 'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD' | null | undefined;
+
+        if (tipo === 'DWORD' || !tipo) {
+          return 'PLC_S';
+        }
+
+        return tipo;
       }
       return null;
     } catch (error) {
@@ -270,59 +309,29 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Verifica si un topic envía DWORD como float IEEE 754 en lugar de entero escalado.
-   * IEEE 754: signo (1 bit) + exponente (8 bits) + mantisa (23 bits). Ej: 41CF D70A → 25.98
+   * Parsea una trama HSE del regulador de carga y retorna los valores convertidos
+   * - HSE con 32 bytes: 8× DWORD IEEE 754 (VS, CS, SW, VB, CB, LV, LC, LP) — p. ej. VMS02
+   * - HSE con 20 bytes: formato clásico (VS,CS 2B; SW 4B; VB,CB,LV,LC 2B; LP 4B)
    */
-  private esLuminariaIEEE754(topic: string): boolean {
-    return false; // Cambiar a this.esLuminariaLittleEndian(topic) si aplica
-  }
-
-  /**
-   * Convierte un DWORD (32 bits hex) a float IEEE 754.
-   * Usa Buffer para interpretar los bits según el estándar IEEE 754.
-   */
-  private convertirDwordAIEEE754Float(
-    hexHigh1: string, hexHigh2: string, hexLow1: string, hexLow2: string,
-    littleEndian: boolean = false
-  ): number {
-    try {
-      const valorHigh = parseInt(hexHigh1 + hexHigh2, 16);
-      const valorLow = parseInt(hexLow1 + hexLow2, 16);
-      const dword = (valorHigh << 16) | valorLow;
-
-      const buffer = Buffer.alloc(4);
-      if (littleEndian) {
-        buffer.writeUInt32LE(dword, 0);
-        return Math.round(buffer.readFloatLE(0) * 100) / 100;
-      }
-      buffer.writeUInt32BE(dword, 0);
-      return Math.round(buffer.readFloatBE(0) * 100) / 100;
-    } catch (error) {
-      this.logger.error("Error al convertir DWORD a IEEE 754 float:", error);
-      return 0;
-    }
-  }
-
-  /**
-   * Parsea una trama HSE o HSP del regulador de carga y retorna los valores convertidos
-   * HSE: VS,CS 2B; SW 4B; VB,CB,LV,LC 2B; LP 4B. Si tipoDispositivo=DWORD, SW y LP se interpretan como IEEE 754.
-   * HSP: 8×4 bytes, todos IEEE 754 float (VS, CS, SW, VB, CB, LV, LC, LP)
-   */
-  private parsearTramaHSE(buffer: Buffer, topic?: string, esLetrero?: boolean, tipoDispositivo?: 'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD' | null): any | null {
+  private parsearTramaHSE(buffer: Buffer, topic?: string, esLetrero?: boolean): any | null {
     try {
       const messageStr = buffer.toString('binary');
       const cleaned = messageStr.trim();
 
-      const esHSP = cleaned.toUpperCase().startsWith("HSP");
-      const esHSE = cleaned.toUpperCase().startsWith("HSE");
-      if (!esHSP && !esHSE) return null;
+      if (!cleaned.toUpperCase().startsWith("HSE")) {
+        return null;
+      }
 
-      const patron = /^(HSE|HSP)\s+(\d{6})\s+(\d{4})\s+/i;
-      const match = cleaned.match(patron);
-      if (!match) return null;
+      // Buscar el patrón HSE + fecha + hora + espacio
+      const patronHSE = /^HSE\s+(\d{6})\s+(\d{4})\s+/i;
+      const match = cleaned.match(patronHSE);
+      
+      if (!match) {
+        return null;
+      }
 
-      const fechaStr = match[2];
-      const horaStr = match[3];
+      const fechaStr = match[1];
+      const horaStr = match[2];
       const inicioDatos = match[0].length;
 
       // Formatear fecha - detectar automáticamente si es DDMMYY o YYMMDD
@@ -367,29 +376,30 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         ? `${horaStr.substring(0, 2)}:${horaStr.substring(2, 4)}`
         : horaStr;
 
-      // Extraer bytes: soportar binario o texto hex (ej. "42 8E 7A E1 ...")
+      // Extraer bytes: soportar binario o texto hex; aceptar 20 o 32 bytes
       const restoStr = buffer.toString('utf8', inicioDatos, buffer.length).trim();
       const hexPairsFromText = restoStr.match(/\b[0-9A-Fa-f]{2}\b/g);
-      const minBytes = esHSP ? 32 : 20;
       let bytes: number[];
-      if (hexPairsFromText && hexPairsFromText.length >= minBytes) {
+      if (hexPairsFromText && hexPairsFromText.length >= 20) {
         bytes = hexPairsFromText.map((hex) => parseInt(hex, 16));
-        this.logger.debug(`Trama ${esHSP ? 'HSP' : 'HSE'} con bytes en texto (hex): ${bytes.length} bytes`);
+        this.logger.debug(`Trama HSE con bytes en texto (hex): ${bytes.length} bytes parseados`);
       } else {
         bytes = [];
-        for (let i = inicioDatos; i < buffer.length; i++) bytes.push(buffer[i]);
+        for (let i = inicioDatos; i < buffer.length; i++) {
+          bytes.push(buffer[i]);
+        }
       }
 
-      if (bytes.length < minBytes) {
-        this.logger.warn(`Trama ${esHSP ? 'HSP' : 'HSE'} incompleta: ${bytes.length} bytes (mínimo ${minBytes})`);
+      if (bytes.length < 20) {
+        this.logger.warn(`Trama HSE incompleta: solo ${bytes.length} bytes (mínimo 20)`);
         return null;
       }
 
       const hexValues = bytes.map(b => b.toString(16).padStart(2, '0').toUpperCase());
       const datos: any = { fecha, hora, timestamp: new Date().toISOString() };
 
-      // Formato HSP: 8×4 bytes IEEE 754 (big-endian)
-      if (esHSP && hexValues.length >= 32) {
+      // HSE con 32 bytes = 8× DWORD IEEE 754 (Real), mismo layout que HSP — p. ej. VMS02
+      if (hexValues.length >= 32) {
         datos.voltajeSolar = this.convertirDwordAIEEE754Float(hexValues[0], hexValues[1], hexValues[2], hexValues[3], false);
         datos.corrienteSolar = this.convertirDwordAIEEE754Float(hexValues[4], hexValues[5], hexValues[6], hexValues[7], false);
         datos.potenciaSolar = this.convertirDwordAIEEE754Float(hexValues[8], hexValues[9], hexValues[10], hexValues[11], false);
@@ -401,60 +411,69 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         return datos;
       }
 
-      // Formato HSE: VS,CS 2B; SW 4B; VB,CB,LV,LC 2B; LP 4B
-      if (hexValues.length >= 2) datos.voltajeSolar = this.convertirHexADecimal(hexValues[0], hexValues[1]);
-      if (hexValues.length >= 4) datos.corrienteSolar = this.convertirHexADecimal(hexValues[2], hexValues[3]);
+      // HSE formato clásico (20 bytes): VS,CS 2B; SW 4B; VB,CB,LV,LC 2B; LP 4B
+      if (hexValues.length >= 2) {
+        datos.voltajeSolar = this.convertirHexADecimal(hexValues[0], hexValues[1]);
+      }
+
+      // Byte 2-3: CS [A] - Corriente Solar
+      if (hexValues.length >= 4) {
+        datos.corrienteSolar = this.convertirHexADecimal(hexValues[2], hexValues[3]);
+      }
 
       // Byte 4-7: SW [W] - Potencia Solar (32 bits)
-      // DWORD: interpretar como IEEE 754. Si no, usar esLuminariaIEEE754(topic) o entero escalado
+      // Little-Endian: en el mensaje byte 4-5 = Low, byte 6-7 = High → valor = (High*65536+Low)/100
       const esLittleEndian = (topic ? this.esLuminariaLittleEndian(topic) : false) || !!esLetrero;
-      const usaIEEE754 = tipoDispositivo === 'DWORD' || (topic ? this.esLuminariaIEEE754(topic) : false);
       if (hexValues.length >= 8) {
-        if (usaIEEE754) {
-          if (esLittleEndian) {
-            datos.potenciaSolar = this.convertirDwordAIEEE754Float(
-              hexValues[6], hexValues[7], hexValues[4], hexValues[5], true
-            );
-          } else {
-            datos.potenciaSolar = this.convertirDwordAIEEE754Float(
-              hexValues[4], hexValues[5], hexValues[6], hexValues[7], false
-            );
-          }
-        } else if (esLittleEndian) {
+        if (esLittleEndian) {
+          // Orden Little-Endian: Low primero, High después en el mensaje
           datos.potenciaSolar = this.convertirHex32BitsADecimal(
-            hexValues[6], hexValues[7], hexValues[4], hexValues[5]
+            hexValues[6], hexValues[7],  // High (bytes 6-7 del mensaje)
+            hexValues[4], hexValues[5]   // Low (bytes 4-5 del mensaje)
           );
         } else {
+          // Orden Big-Endian estándar: High primero, Low después en el mensaje
           datos.potenciaSolar = this.convertirHex32BitsADecimal(
-            hexValues[4], hexValues[5], hexValues[6], hexValues[7]
+            hexValues[4], hexValues[5],  // High
+            hexValues[6], hexValues[7]   // Low
           );
         }
       }
 
-      if (hexValues.length >= 10) datos.voltajeBateria = this.convertirHexADecimal(hexValues[8], hexValues[9]);
-      if (hexValues.length >= 12) datos.corrienteBateria = this.convertirHexADecimal(hexValues[10], hexValues[11]);
-      if (hexValues.length >= 14) datos.voltajeCargas = this.convertirHexADecimal(hexValues[12], hexValues[13]);
-      if (hexValues.length >= 16) datos.corrienteCargas = this.convertirHexADecimal(hexValues[14], hexValues[15]);
+      // Byte 8-9: VB [V] - Voltaje Batería
+      if (hexValues.length >= 10) {
+        datos.voltajeBateria = this.convertirHexADecimal(hexValues[8], hexValues[9]);
+      }
+
+      // Byte 10-11: CB [A] - Corriente Batería
+      if (hexValues.length >= 12) {
+        datos.corrienteBateria = this.convertirHexADecimal(hexValues[10], hexValues[11]);
+      }
+
+      // Byte 12-13: LV [V] - Voltaje Cargas
+      if (hexValues.length >= 14) {
+        datos.voltajeCargas = this.convertirHexADecimal(hexValues[12], hexValues[13]);
+      }
+
+      // Byte 14-15: LC [A] - Corriente Cargas
+      if (hexValues.length >= 16) {
+        datos.corrienteCargas = this.convertirHexADecimal(hexValues[14], hexValues[15]);
+      }
 
       // Byte 16-19: LP [W] - Potencia Cargas (32 bits)
+      // Misma conversión: (High*65536+Low)/100. Little-Endian: bytes 16-17=Low, 18-19=High
       if (hexValues.length >= 20) {
-        if (usaIEEE754) {
-          if (esLittleEndian) {
-            datos.potenciaCargas = this.convertirDwordAIEEE754Float(
-              hexValues[18], hexValues[19], hexValues[16], hexValues[17], true
-            );
-          } else {
-            datos.potenciaCargas = this.convertirDwordAIEEE754Float(
-              hexValues[16], hexValues[17], hexValues[18], hexValues[19], false
-            );
-          }
-        } else if (esLittleEndian) {
+        if (esLittleEndian) {
+          // Orden Little-Endian: Low primero, High después en el mensaje
           datos.potenciaCargas = this.convertirHex32BitsADecimal(
-            hexValues[18], hexValues[19], hexValues[16], hexValues[17]
+            hexValues[18], hexValues[19],  // High (bytes 18-19 del mensaje)
+            hexValues[16], hexValues[17]   // Low (bytes 16-17 del mensaje)
           );
         } else {
+          // Orden Big-Endian estándar: High primero, Low después en el mensaje
           datos.potenciaCargas = this.convertirHex32BitsADecimal(
-            hexValues[16], hexValues[17], hexValues[18], hexValues[19]
+            hexValues[16], hexValues[17],  // High
+            hexValues[18], hexValues[19]  // Low
           );
         }
       }
@@ -692,16 +711,16 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           const esLuminaria = await this.esTopicLuminaria(topic);
           const esLetrero = await this.esTopicLetrero(topic);
 
-          const procesarHSE = async (tipoDispositivo: 'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD' | null, tipoEntidad: string) => {
+          const procesarHSE = async (tipoDispositivo: 'RPI' | 'PLC_S' | 'PLC_N' | null, tipoEntidad: string) => {
             if (tipoDispositivo === 'RPI') {
               this.logger.debug(`Mensaje de RPI recibido en ${topic} (${tipoEntidad}) - datos ya procesados`);
               return;
             }
-            const procesarComoPLC = tipoDispositivo === 'PLC_S' || tipoDispositivo === 'PLC_N' || tipoDispositivo === 'DWORD' || !tipoDispositivo;
+            const procesarComoPLC = tipoDispositivo === 'PLC_S' || tipoDispositivo === 'PLC_N' || !tipoDispositivo;
             if (procesarComoPLC) {
-              this.logger.debug(`Procesando señal HSE/HSP para ${tipoEntidad} ${topic} (tipo: ${tipoDispositivo || 'PLC_S'})`);
+              this.logger.debug(`Procesando señal HSE para ${tipoEntidad} ${topic} (tipo: ${tipoDispositivo || 'PLC_S'})`);
               const esLetreroEntidad = tipoEntidad === 'letrero';
-              const datosConvertidos = this.parsearTramaHSE(message, topic, esLetreroEntidad, tipoDispositivo);
+              const datosConvertidos = this.parsearTramaHSE(message, topic, esLetreroEntidad);
               if (datosConvertidos && this.client && this.isConnected) {
                 const topicProcesado = `${topic}/procesado`;
                 const mensajeProcesado = JSON.stringify(datosConvertidos);
