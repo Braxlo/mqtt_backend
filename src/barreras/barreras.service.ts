@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Barrera as BarreraEntity } from '../entities/barrera.entity';
@@ -11,13 +11,47 @@ import { UpdateBarreraDto } from './dto/update-barrera.dto';
  * Usa TypeORM para persistencia en PostgreSQL
  */
 @Injectable()
-export class BarrerasService {
+export class BarrerasService implements OnModuleInit {
   private readonly logger = new Logger(BarrerasService.name);
 
   constructor(
     @InjectRepository(BarreraEntity)
     private barreraRepository: Repository<BarreraEntity>,
   ) {}
+
+  /**
+   * Asegura que la columna tipoDispositivo exista en la tabla barreras.
+   * Esto permite que el backend "migre" automáticamente sin que tengas que ejecutar el SQL manualmente.
+   */
+  async onModuleInit() {
+    try {
+      const result = await this.barreraRepository.query(`
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'barreras'
+          AND column_name = 'tipoDispositivo'
+      `);
+
+      if (result.length === 0) {
+        this.logger.log('Columna tipoDispositivo no existe en barreras. Creando columna...');
+        await this.barreraRepository.query(`
+          ALTER TABLE barreras
+          ADD COLUMN "tipoDispositivo" VARCHAR(10) DEFAULT 'PLC_S'
+        `);
+        await this.barreraRepository.query(`
+          UPDATE barreras
+          SET "tipoDispositivo" = 'PLC_S'
+          WHERE "tipoDispositivo" IS NULL
+        `);
+        this.logger.log('Columna tipoDispositivo creada e inicializada en barreras.');
+      } else {
+        this.logger.debug('Columna tipoDispositivo ya existe en barreras.');
+      }
+    } catch (error) {
+      this.logger.error(`Error asegurando columna tipoDispositivo en barreras: ${error.message}`);
+    }
+  }
 
   /**
    * Obtener todas las barreras
