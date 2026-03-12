@@ -12,6 +12,7 @@ export interface ConfiguracionBarrera {
   funcion?: 'entrada' | 'salida' | 'ambas'; // Función de la barrera: entrada, salida o ambas
   orden?: number; // Orden de visualización
   tipoBateria?: '24V' | '48V'; // Define umbrales de alerta para reporte de energía (precaución/crítico)
+  tipoDispositivo?: 'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD'; // Tipo de dispositivo de entrada (energía)
   categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar'; // Categoría de la barrera (sin_asignar = no asignada)
 }
 

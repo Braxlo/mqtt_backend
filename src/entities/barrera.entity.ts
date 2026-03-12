@@ -41,6 +41,14 @@ export class Barrera {
   @Column({ type: 'integer', default: 0 })
   orden: number;
 
+  @Column({
+    type: 'varchar',
+    length: 10,
+    default: 'PLC_S',
+    comment: 'Tipo de dispositivo de entrada: RPI (datos ya procesados), PLC_S (PLC Siemens), PLC_N (PLC Nitz), DWORD (32 bits IEEE 754)',
+  })
+  tipoDispositivo: 'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD';
+
   @Column({ 
     type: 'varchar', 
     length: 5, 

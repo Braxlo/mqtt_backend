@@ -48,6 +48,11 @@ export class CreateBarreraDto {
   @IsIn(['24V', '48V'], { message: 'El tipo de batería debe ser 24V o 48V' })
   tipoBateria?: '24V' | '48V';
 
+  @IsOptional()
+  @IsString({ message: 'El tipo de dispositivo debe ser una cadena de texto' })
+  @IsIn(['RPI', 'PLC_S', 'PLC_N', 'DWORD'], { message: 'El tipo de dispositivo debe ser RPI, PLC_S, PLC_N o DWORD' })
+  tipoDispositivo?: 'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD';
+
   @IsString({ message: 'La categoría debe ser una cadena de texto' })
   @IsOptional()
   categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar';

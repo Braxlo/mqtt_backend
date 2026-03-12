@@ -37,6 +37,7 @@ export class BarrerasService {
       funcion: b.funcion,
       orden: b.orden,
       tipoBateria: b.tipoBateria || '48V',
+      tipoDispositivo: b.tipoDispositivo || 'PLC_S',
       categoria: b.categoria ?? 'sin_asignar',
     }));
   }
@@ -60,6 +61,7 @@ export class BarrerasService {
       funcion: barrera.funcion,
       orden: barrera.orden,
       tipoBateria: barrera.tipoBateria || '48V',
+      tipoDispositivo: barrera.tipoDispositivo || 'PLC_S',
       categoria: barrera.categoria ?? 'sin_asignar',
     };
   }
@@ -87,6 +89,7 @@ export class BarrerasService {
       funcion: savedBarrera.funcion,
       orden: savedBarrera.orden,
       tipoBateria: savedBarrera.tipoBateria || '48V',
+      tipoDispositivo: savedBarrera.tipoDispositivo || 'PLC_S',
       categoria: savedBarrera.categoria ?? 'sin_asignar',
     };
   }
@@ -118,6 +121,7 @@ export class BarrerasService {
       funcion: updatedBarrera.funcion,
       orden: updatedBarrera.orden,
       tipoBateria: updatedBarrera.tipoBateria || '48V',
+      tipoDispositivo: updatedBarrera.tipoDispositivo || 'PLC_S',
       categoria: updatedBarrera.categoria ?? 'sin_asignar',
     };
   }
