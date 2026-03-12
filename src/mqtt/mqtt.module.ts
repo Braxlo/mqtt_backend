@@ -10,11 +10,12 @@ import { MqttSubscribedTopic } from '../entities/mqtt-subscribed-topic.entity';
 import { MqttConfig } from '../entities/mqtt-config.entity';
 import { Luminaria } from '../entities/luminaria.entity';
 import { Letrero } from '../entities/letrero.entity';
+import { Barrera } from '../entities/barrera.entity';
 import { APP_CONSTANTS } from '../common/constants/app.constants';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([MqttMessage, MqttSubscribedTopic, MqttConfig, Luminaria, Letrero]),
+    TypeOrmModule.forFeature([MqttMessage, MqttSubscribedTopic, MqttConfig, Luminaria, Letrero, Barrera]),
     forwardRef(() => WebSocketModule),
     AuthModule,
     JwtModule.register({

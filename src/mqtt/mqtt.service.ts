@@ -9,6 +9,7 @@ import { MqttSubscribedTopic } from '../entities/mqtt-subscribed-topic.entity';
 import { MqttConfig } from '../entities/mqtt-config.entity';
 import { Luminaria } from '../entities/luminaria.entity';
 import { Letrero } from '../entities/letrero.entity';
+import { Barrera } from '../entities/barrera.entity';
 import { APP_CONSTANTS } from '../common/constants/app.constants';
 
 @Injectable()
@@ -300,6 +301,50 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Verifica si un topic es de una barrera configurada (topic base, sin /procesado).
+   */
+  private async esTopicBarrera(topic: string): Promise<boolean> {
+    try {
+      const topicBase = (topic || '').replace(/\/procesado$/i, '').trim();
+      const topicNorm = topicBase.toLowerCase();
+      const barrera = await this.barreraRepository.findOne({
+        where: { topic: topicBase },
+      });
+      if (barrera) return true;
+      const todas = await this.barreraRepository.find();
+      return todas.some((b) => (b.topic || '').trim().toLowerCase() === topicNorm);
+    } catch (error) {
+      this.logger.error(`Error al verificar si topic es barrera: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Obtiene el tipo de dispositivo de una barrera por su topic (base, sin /procesado).
+   */
+  private async obtenerTipoDispositivoBarrera(topic: string): Promise<'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD' | null> {
+    try {
+      const topicBase = (topic || '').replace(/\/procesado$/i, '').trim();
+      const topicNorm = topicBase.toLowerCase();
+      let barrera = await this.barreraRepository.findOne({
+        where: { topic: topicBase },
+      });
+      if (!barrera) {
+        const todas = await this.barreraRepository.find();
+        barrera = todas.find((b) => (b.topic || '').trim().toLowerCase() === topicNorm) ?? null;
+      }
+      if (barrera) {
+        const tipo = barrera.tipoDispositivo as 'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD' | undefined;
+        return tipo ?? 'PLC_S';
+      }
+      return null;
+    } catch (error) {
+      this.logger.error(`Error al obtener tipo de dispositivo barrera para topic ${topic}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
    * Verifica si un topic es una luminaria que requiere orden Little-Endian (16, 17, 18, 19)
    */
   private esLuminariaLittleEndian(topic: string): boolean {
@@ -311,9 +356,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   /**
    * Parsea una trama HSE del regulador de carga y retorna los valores convertidos
    * - HSE con 32 bytes: 8× DWORD IEEE 754 (VS, CS, SW, VB, CB, LV, LC, LP) — p. ej. VMS02
-   * - HSE con 20 bytes: formato clásico (VS,CS 2B; SW 4B; VB,CB,LV,LC 2B; LP 4B)
+   * - HSE con 20 bytes: formato clásico (VS,CS 2B; SW 4B; VB,CB,LV,LC 2B; LP 4B). Si tipoDispositivo es DWORD, SW y LP se interpretan como IEEE 754.
    */
-  private parsearTramaHSE(buffer: Buffer, topic?: string, esLetrero?: boolean): any | null {
+  private parsearTramaHSE(buffer: Buffer, topic?: string, esLetrero?: boolean, tipoDispositivo?: 'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD'): any | null {
     try {
       const messageStr = buffer.toString('binary');
       const cleaned = messageStr.trim();
@@ -422,10 +467,12 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       }
 
       // Byte 4-7: SW [W] - Potencia Solar (32 bits)
-      // Little-Endian: en el mensaje byte 4-5 = Low, byte 6-7 = High → valor = (High*65536+Low)/100
+      // DWORD: interpretar como IEEE 754. Si no, Little-Endian/Big-Endian según dispositivo.
       const esLittleEndian = (topic ? this.esLuminariaLittleEndian(topic) : false) || !!esLetrero;
       if (hexValues.length >= 8) {
-        if (esLittleEndian) {
+        if (tipoDispositivo === 'DWORD') {
+          datos.potenciaSolar = this.convertirDwordAIEEE754Float(hexValues[4], hexValues[5], hexValues[6], hexValues[7], false);
+        } else if (esLittleEndian) {
           // Orden Little-Endian: Low primero, High después en el mensaje
           datos.potenciaSolar = this.convertirHex32BitsADecimal(
             hexValues[6], hexValues[7],  // High (bytes 6-7 del mensaje)
@@ -461,9 +508,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       }
 
       // Byte 16-19: LP [W] - Potencia Cargas (32 bits)
-      // Misma conversión: (High*65536+Low)/100. Little-Endian: bytes 16-17=Low, 18-19=High
+      // DWORD: interpretar como IEEE 754. Si no, Little-Endian/Big-Endian según dispositivo.
       if (hexValues.length >= 20) {
-        if (esLittleEndian) {
+        if (tipoDispositivo === 'DWORD') {
+          datos.potenciaCargas = this.convertirDwordAIEEE754Float(hexValues[16], hexValues[17], hexValues[18], hexValues[19], false);
+        } else if (esLittleEndian) {
           // Orden Little-Endian: Low primero, High después en el mensaje
           datos.potenciaCargas = this.convertirHex32BitsADecimal(
             hexValues[18], hexValues[19],  // High (bytes 18-19 del mensaje)
@@ -496,6 +545,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     private luminariaRepository: Repository<Luminaria>,
     @InjectRepository(Letrero)
     private letreroRepository: Repository<Letrero>,
+    @InjectRepository(Barrera)
+    private barreraRepository: Repository<Barrera>,
   ) {}
 
   async onModuleInit() {
@@ -710,17 +761,18 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         if (this.esTramaHSE(message)) {
           const esLuminaria = await this.esTopicLuminaria(topic);
           const esLetrero = await this.esTopicLetrero(topic);
+          const esBarrera = await this.esTopicBarrera(topic);
 
-          const procesarHSE = async (tipoDispositivo: 'RPI' | 'PLC_S' | 'PLC_N' | null, tipoEntidad: string) => {
+          const procesarHSE = async (tipoDispositivo: 'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD' | null, tipoEntidad: string) => {
             if (tipoDispositivo === 'RPI') {
               this.logger.debug(`Mensaje de RPI recibido en ${topic} (${tipoEntidad}) - datos ya procesados`);
               return;
             }
-            const procesarComoPLC = tipoDispositivo === 'PLC_S' || tipoDispositivo === 'PLC_N' || !tipoDispositivo;
+            const procesarComoPLC = tipoDispositivo === 'PLC_S' || tipoDispositivo === 'PLC_N' || tipoDispositivo === 'DWORD' || !tipoDispositivo;
             if (procesarComoPLC) {
               this.logger.debug(`Procesando señal HSE para ${tipoEntidad} ${topic} (tipo: ${tipoDispositivo || 'PLC_S'})`);
               const esLetreroEntidad = tipoEntidad === 'letrero';
-              const datosConvertidos = this.parsearTramaHSE(message, topic, esLetreroEntidad);
+              const datosConvertidos = this.parsearTramaHSE(message, topic, esLetreroEntidad, tipoDispositivo ?? undefined);
               if (datosConvertidos && this.client && this.isConnected) {
                 const topicProcesado = `${topic}/procesado`;
                 const mensajeProcesado = JSON.stringify(datosConvertidos);
@@ -754,9 +806,12 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           } else if (esLetrero) {
             const tipoDispositivo = await this.obtenerTipoDispositivoLetrero(topic);
             await procesarHSE(tipoDispositivo, 'letrero');
+          } else if (esBarrera) {
+            const tipoDispositivo = await this.obtenerTipoDispositivoBarrera(topic);
+            await procesarHSE(tipoDispositivo, 'barrera');
           } else {
-            this.logger.warn(`⚠️ Trama HSE detectada en ${topic} pero no es de luminaria ni letrero configurado.`);
-            this.logger.warn(`   Configura el topic en Configuración de Luminarias o Configuración de Letreros (Settings).`);
+            this.logger.warn(`⚠️ Trama HSE detectada en ${topic} pero no es de luminaria, letrero ni barrera configurado.`);
+            this.logger.warn(`   Configura el topic en Configuración de Luminarias, Letreros o Barreras (Settings).`);
           }
         }
         
@@ -1150,8 +1205,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Limpiar topics /procesado que no son de luminarias ni de letreros
-   * Elimina mensajes de /procesado cuyo topic base no está configurado como luminaria ni letrero
+   * Limpiar topics /procesado que no son de luminarias, letreros ni barreras
+   * Elimina mensajes de /procesado cuyo topic base no está configurado como luminaria, letrero o barrera
    */
   async limpiarTopicsProcesadoNoLuminarias(): Promise<{ eliminados: number; topics: string[] }> {
     try {
@@ -1169,8 +1224,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         const topicBase = topicProcesado.replace('/procesado', '');
         const esLuminaria = await this.esTopicLuminaria(topicBase);
         const esLetrero = await this.esTopicLetrero(topicBase);
+        const esBarrera = await this.esTopicBarrera(topicBase);
 
-        if (!esLuminaria && !esLetrero) {
+        if (!esLuminaria && !esLetrero && !esBarrera) {
           const resultado = await this.mqttMessageRepository
             .createQueryBuilder()
             .delete()
@@ -1179,7 +1235,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           const eliminados = resultado.affected || 0;
           totalEliminados += eliminados;
           topicsAEliminar.push(topicProcesado);
-          this.logger.log(`Eliminados ${eliminados} mensajes del topic ${topicProcesado} (no es luminaria ni letrero)`);
+          this.logger.log(`Eliminados ${eliminados} mensajes del topic ${topicProcesado} (no es luminaria, letrero ni barrera)`);
         }
       }
 
