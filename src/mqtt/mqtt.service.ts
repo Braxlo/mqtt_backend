@@ -105,13 +105,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Detecta si un mensaje es una trama HSE del regulador de carga (luminaria).
+   * Detecta si un mensaje es una trama HSE/HSP del regulador de carga (energía).
    * Acepta formato con bytes binarios o con bytes en texto (hex separado por espacios, ej. "HSE 260219 1816 ! 0B 02 1E B3 ...").
    */
   private esTramaHSE(buffer: Buffer): boolean {
     const messageStr = buffer.toString('utf8', 0, Math.min(50, buffer.length));
-    const patronHSE = /^HSE\s+\d{6}\s+\d{4}\s+/i;
-    return patronHSE.test(messageStr);
+    const patron = /^HS[EP]\s+\d{6}\s+\d{4}\s+/i;
+    return patron.test(messageStr);
   }
 
   /**
@@ -354,22 +354,23 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Parsea una trama HSE del regulador de carga y retorna los valores convertidos
-   * - HSE con 32 bytes: 8× DWORD IEEE 754 (VS, CS, SW, VB, CB, LV, LC, LP) — p. ej. VMS02
-   * - HSE con 20 bytes: formato clásico (VS,CS 2B; SW 4B; VB,CB,LV,LC 2B; LP 4B). Si tipoDispositivo es DWORD, SW y LP se interpretan como IEEE 754.
+   * Parsea una trama HSE/HSP del regulador de carga y retorna los valores convertidos
+   * - HSE/HSP con 32 bytes: 8× DWORD IEEE 754 (VS, CS, SW, VB, CB, LV, LC, LP) — p. ej. VMS02
+   * - HSE/HSP con 20 bytes: formato clásico (VS,CS 2B; SW 4B; VB,CB,LV,LC 2B; LP 4B). Si tipoDispositivo es DWORD, SW y LP se interpretan como IEEE 754.
    */
   private parsearTramaHSE(buffer: Buffer, topic?: string, esLetrero?: boolean, tipoDispositivo?: 'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD'): any | null {
     try {
       const messageStr = buffer.toString('binary');
       const cleaned = messageStr.trim();
 
-      if (!cleaned.toUpperCase().startsWith("HSE")) {
+      const upper = cleaned.toUpperCase();
+      if (!(upper.startsWith("HSE") || upper.startsWith("HSP"))) {
         return null;
       }
 
-      // Buscar el patrón HSE + fecha + hora + espacio
-      const patronHSE = /^HSE\s+(\d{6})\s+(\d{4})\s+/i;
-      const match = cleaned.match(patronHSE);
+      // Buscar el patrón HSE/HSP + fecha + hora + espacio
+      const patron = /^HS[EP]\s+(\d{6})\s+(\d{4})\s+/i;
+      const match = cleaned.match(patron);
       
       if (!match) {
         return null;
@@ -665,12 +666,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       });
 
       this.client.on('message', async (topic, message) => {
-        // Si se recibe un mensaje en un topic /procesado, verificar si es de luminaria
+        // Si se recibe un mensaje en un topic /procesado, verificar si es de luminaria / letrero / barrera
         if (topic.endsWith('/procesado')) {
           const topicBase = topic.replace('/procesado', '');
           const esLuminaria = await this.esTopicLuminaria(topicBase);
-          if (!esLuminaria) {
-            // No es de luminaria (p. ej. barreras o letreros): guardar bajo el topic base para que esté en BD y los reportes lo vean
+          const esLetrero = await this.esTopicLetrero(topicBase);
+          const esBarrera = await this.esTopicBarrera(topicBase);
+          if (!esLuminaria && !esLetrero && !esBarrera) {
+            // No es de luminaria, letrero ni barrera configurado: guardar bajo el topic base para que esté en BD y los reportes lo vean
             const timestamp = new Date();
             const messageParaBD = this.procesarMensajeParaBD(message);
             try {
@@ -705,7 +708,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
             }
             return;
           }
-          // Si es de luminaria, continuar con el procesamiento normal
+          // Si es de luminaria/letrero/barrera configurado, continuar con el procesamiento normal manteniendo el topic /procesado
         }
         // Procesar mensaje: convertir a string para comparación y detección de duplicados
         const messageStr = message.toString('utf8');
