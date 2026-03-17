@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Letrero as LetreroEntity } from '../entities/letrero.entity';
@@ -11,7 +11,7 @@ import { UpdateLetreroDto } from './dto/update-letrero.dto';
  * Usa TypeORM para persistencia en PostgreSQL
  */
 @Injectable()
-export class LetrerosService {
+export class LetrerosService implements OnModuleInit {
   private readonly logger = new Logger(LetrerosService.name);
 
   constructor(
@@ -20,16 +20,51 @@ export class LetrerosService {
   ) {}
 
   /**
+   * Asegura que la columna orden exista en la tabla letreros.
+   * Sigue el mismo patrón que luminarias.
+   */
+  async onModuleInit() {
+    try {
+      const result = await this.letreroRepository.query(`
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'letreros'
+          AND column_name = 'orden'
+      `);
+
+      if (result.length === 0) {
+        this.logger.log('Columna orden no existe en letreros. Creando columna...');
+        await this.letreroRepository.query(`
+          ALTER TABLE letreros
+          ADD COLUMN orden INTEGER DEFAULT 0
+        `);
+        await this.letreroRepository.query(`
+          UPDATE letreros
+          SET orden = 0
+          WHERE orden IS NULL
+        `);
+        this.logger.log('Columna orden creada e inicializada en letreros.');
+      } else {
+        this.logger.debug('Columna orden ya existe en letreros.');
+      }
+    } catch (error) {
+      this.logger.error(`Error asegurando columna orden en letreros: ${error.message}`);
+    }
+  }
+
+  /**
    * Obtener todos los letreros
    */
   async findAll(): Promise<ConfiguracionLetrero[]> {
     const letreros = await this.letreroRepository.find({
-      order: { createdAt: 'DESC' },
+      order: { orden: 'ASC', createdAt: 'DESC' },
     });
     return letreros.map((l) => ({
       id: l.id,
       nombre: l.nombre,
       topic: l.topic,
+      orden: (l as any).orden ?? 0,
       tipoDispositivo: l.tipoDispositivo || 'PLC_S',
       tipoBateria: l.tipoBateria || '48V',
       categoria: l.categoria ?? 'sin_asignar',
@@ -63,6 +98,7 @@ export class LetrerosService {
       id: Date.now().toString(),
       topic,
       nombre: createLetreroDto.nombre,
+      orden: (createLetreroDto as any).orden ?? 0,
       tipoDispositivo: createLetreroDto.tipoDispositivo || 'PLC_S',
       tipoBateria: createLetreroDto.tipoBateria || '48V',
       categoria: 'letreros', // Siempre se muestra en la página de Letreros
@@ -73,6 +109,7 @@ export class LetrerosService {
       id: savedLetrero.id,
       nombre: savedLetrero.nombre,
       topic: savedLetrero.topic,
+      orden: (savedLetrero as any).orden ?? 0,
       tipoDispositivo: savedLetrero.tipoDispositivo || 'PLC_S',
       tipoBateria: savedLetrero.tipoBateria || '48V',
       categoria: savedLetrero.categoria ?? 'sin_asignar',
@@ -98,6 +135,9 @@ export class LetrerosService {
     if (updateLetreroDto.tipoBateria === undefined) {
       letrero.tipoBateria = letrero.tipoBateria || '48V';
     }
+    if ((updateLetreroDto as any).orden === undefined || (updateLetreroDto as any).orden === null) {
+      (letrero as any).orden = (letrero as any).orden ?? 0;
+    }
     letrero.categoria = 'letreros'; // Siempre se muestra en la página de Letreros
     const updatedLetrero = await this.letreroRepository.save(letrero);
     this.logger.log(`Letrero actualizado: ${updatedLetrero.nombre} (ID: ${id})`);
@@ -105,6 +145,7 @@ export class LetrerosService {
       id: updatedLetrero.id,
       nombre: updatedLetrero.nombre,
       topic: updatedLetrero.topic,
+      orden: (updatedLetrero as any).orden ?? 0,
       tipoDispositivo: updatedLetrero.tipoDispositivo || 'PLC_S',
       tipoBateria: updatedLetrero.tipoBateria || '48V',
       categoria: updatedLetrero.categoria ?? 'sin_asignar',
@@ -122,5 +163,15 @@ export class LetrerosService {
     const nombre = letrero.nombre;
     await this.letreroRepository.remove(letrero);
     this.logger.log(`Letrero eliminado: ${nombre} (ID: ${id})`);
+  }
+
+  /**
+   * Actualizar el orden de múltiples letreros
+   */
+  async updateOrder(letrerosOrden: { id: string; orden: number }[]): Promise<void> {
+    for (const { id, orden } of letrerosOrden) {
+      await this.letreroRepository.update(id, { orden });
+    }
+    this.logger.log(`Orden actualizado para ${letrerosOrden.length} letreros`);
   }
 }

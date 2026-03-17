@@ -13,6 +13,7 @@ import {
 import { LetrerosService } from './letreros.service';
 import { CreateLetreroDto } from './dto/create-letrero.dto';
 import { UpdateLetreroDto } from './dto/update-letrero.dto';
+import { UpdateOrderDto } from './dto/update-order.dto';
 import { ResponseUtil } from '../common/utils/response.util';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -54,5 +55,12 @@ export class LetrerosController {
   async remove(@Param('id') id: string) {
     await this.letrerosService.remove(id);
     return ResponseUtil.success(null, 'Letrero eliminado exitosamente');
+  }
+
+  @Post('orden')
+  @HttpCode(HttpStatus.OK)
+  async updateOrder(@Body() updateOrderDto: UpdateOrderDto) {
+    await this.letrerosService.updateOrder(updateOrderDto.letreros);
+    return ResponseUtil.success(null, 'Orden de letreros actualizado exitosamente');
   }
 }

@@ -39,6 +39,9 @@ export class Letrero {
   })
   tipoBateria: '24V' | '48V';
 
+  @Column({ type: 'int', default: 0 })
+  orden: number;
+
   @Column({ type: 'varchar', length: 50, nullable: true })
   categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar';
 

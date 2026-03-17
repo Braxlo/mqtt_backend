@@ -1,7 +1,7 @@
 import { IsArray, ValidateNested, IsString, IsInt } from 'class-validator';
 import { Type } from 'class-transformer';
 
-class LuminariaOrdenDto {
+class LetreroOrdenDto {
   @IsString()
   id: string;
 
@@ -12,8 +12,7 @@ class LuminariaOrdenDto {
 export class UpdateOrderDto {
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => LuminariaOrdenDto)
-  luminarias: LuminariaOrdenDto[];
+  @Type(() => LetreroOrdenDto)
+  letreros: LetreroOrdenDto[];
 }
-
 
