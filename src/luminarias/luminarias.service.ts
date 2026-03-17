@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Luminaria as LuminariaEntity } from '../entities/luminaria.entity';
@@ -11,7 +11,7 @@ import { UpdateLuminariaDto } from './dto/update-luminaria.dto';
  * Usa TypeORM para persistencia en PostgreSQL
  */
 @Injectable()
-export class LuminariasService {
+export class LuminariasService implements OnModuleInit {
   private readonly logger = new Logger(LuminariasService.name);
 
   constructor(
@@ -20,16 +20,51 @@ export class LuminariasService {
   ) {}
 
   /**
+   * Asegura que la columna orden exista en la tabla luminarias.
+   * Permite migrar automáticamente sin ejecutar SQL manual.
+   */
+  async onModuleInit() {
+    try {
+      const result = await this.luminariaRepository.query(`
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'luminarias'
+          AND column_name = 'orden'
+      `);
+
+      if (result.length === 0) {
+        this.logger.log('Columna orden no existe en luminarias. Creando columna...');
+        await this.luminariaRepository.query(`
+          ALTER TABLE luminarias
+          ADD COLUMN orden INTEGER DEFAULT 0
+        `);
+        await this.luminariaRepository.query(`
+          UPDATE luminarias
+          SET orden = 0
+          WHERE orden IS NULL
+        `);
+        this.logger.log('Columna orden creada e inicializada en luminarias.');
+      } else {
+        this.logger.debug('Columna orden ya existe en luminarias.');
+      }
+    } catch (error) {
+      this.logger.error(`Error asegurando columna orden en luminarias: ${error.message}`);
+    }
+  }
+
+  /**
    * Obtener todas las luminarias
    */
   async findAll(): Promise<ConfiguracionLuminaria[]> {
     const luminarias = await this.luminariaRepository.find({
-      order: { createdAt: 'DESC' },
+      order: { orden: 'ASC', createdAt: 'DESC' },
     });
     return luminarias.map((l) => ({
       id: l.id,
       nombre: l.nombre,
       topic: l.topic,
+      orden: l.orden,
       tipoDispositivo: l.tipoDispositivo || 'PLC_S',
       tipoBateria: l.tipoBateria || '48V',
       categoria: l.categoria ?? 'sin_asignar',
@@ -62,6 +97,7 @@ export class LuminariasService {
       id: Date.now().toString(),
       tipoDispositivo: createLuminariaDto.tipoDispositivo || 'PLC_S',
       tipoBateria: createLuminariaDto.tipoBateria || '48V',
+      orden: createLuminariaDto.orden ?? 0,
       ...createLuminariaDto,
       categoria: 'luminarias', // Siempre se muestra en la página de Luminarias
     });
@@ -71,6 +107,7 @@ export class LuminariasService {
       id: savedLuminaria.id,
       nombre: savedLuminaria.nombre,
       topic: savedLuminaria.topic,
+      orden: savedLuminaria.orden,
       tipoDispositivo: savedLuminaria.tipoDispositivo || 'PLC_S',
       tipoBateria: savedLuminaria.tipoBateria || '48V',
       categoria: savedLuminaria.categoria ?? 'sin_asignar',
@@ -93,6 +130,9 @@ export class LuminariasService {
     if (updateLuminariaDto.tipoBateria === undefined) {
       luminaria.tipoBateria = luminaria.tipoBateria || '48V';
     }
+    if (updateLuminariaDto.orden === undefined || updateLuminariaDto.orden === null) {
+      luminaria.orden = luminaria.orden ?? 0;
+    }
     luminaria.categoria = 'luminarias'; // Siempre se muestra en la página de Luminarias
     const updatedLuminaria = await this.luminariaRepository.save(luminaria);
     this.logger.log(`Luminaria actualizada: ${updatedLuminaria.nombre} (ID: ${id})`);
@@ -100,10 +140,21 @@ export class LuminariasService {
       id: updatedLuminaria.id,
       nombre: updatedLuminaria.nombre,
       topic: updatedLuminaria.topic,
+      orden: updatedLuminaria.orden,
       tipoDispositivo: updatedLuminaria.tipoDispositivo || 'PLC_S',
       tipoBateria: updatedLuminaria.tipoBateria || '48V',
       categoria: updatedLuminaria.categoria ?? 'sin_asignar',
     };
+  }
+
+  /**
+   * Actualizar el orden de múltiples luminarias
+   */
+  async updateOrder(luminariasOrden: { id: string; orden: number }[]): Promise<void> {
+    for (const { id, orden } of luminariasOrden) {
+      await this.luminariaRepository.update(id, { orden });
+    }
+    this.logger.log(`Orden actualizado para ${luminariasOrden.length} luminarias`);
   }
 
   /**

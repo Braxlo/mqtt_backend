@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, MaxLength, MinLength, IsOptional, IsIn } from 'class-validator';
+import { IsString, IsNotEmpty, MaxLength, MinLength, IsOptional, IsIn, IsInt, Min } from 'class-validator';
 
 /**
  * DTO para crear una nueva luminaria
@@ -30,5 +30,10 @@ export class CreateLuminariaDto {
   @IsString()
   @IsIn(['chancado', 'luminarias', 'barreras', 'letreros', 'otras_barreras', 'otros', 'prueba', 'sin_asignar'])
   categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar';
+
+  @IsOptional()
+  @IsInt({ message: 'El orden debe ser un número entero' })
+  @Min(0, { message: 'El orden no puede ser negativo' })
+  orden?: number;
 }
 

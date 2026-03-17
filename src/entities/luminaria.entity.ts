@@ -23,6 +23,13 @@ export class Luminaria {
   @Index()
   topic: string;
 
+  @Column({
+    type: 'integer',
+    default: 0,
+    comment: 'Orden de visualización configurable desde la UI (drag & drop)',
+  })
+  orden: number;
+
   @Column({ 
     type: 'varchar', 
     length: 10, 
