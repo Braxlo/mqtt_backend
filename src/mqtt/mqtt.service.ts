@@ -11,6 +11,7 @@ import { Luminaria } from '../entities/luminaria.entity';
 import { Letrero } from '../entities/letrero.entity';
 import { Barrera } from '../entities/barrera.entity';
 import { APP_CONSTANTS } from '../common/constants/app.constants';
+import * as ExcelJS from 'exceljs';
 
 @Injectable()
 export class MqttService implements OnModuleInit, OnModuleDestroy {
@@ -1265,6 +1266,474 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Error al obtener topics únicos: ${error.message}`);
       return [];
     }
+  }
+
+  private parseRegistroEnergiaParaExport(message: string, timestamp: string): {
+    timestamp: string;
+    VS?: number;
+    CS?: number;
+    SW?: number;
+    VB?: number;
+    CB?: number;
+    LV?: number;
+    LC?: number;
+    LP?: number;
+  } | null {
+    const raw = (message || '').trim();
+    if (!raw) return null;
+
+    // 1) Intentar JSON
+    try {
+      const data = JSON.parse(raw) as Record<string, unknown>;
+      const n = (a: unknown, b?: unknown) => {
+        const v = a ?? b;
+        if (v == null) return undefined;
+        const num = Number(v);
+        return Number.isNaN(num) ? undefined : num;
+      };
+      const reg = {
+        timestamp,
+        VS: n(data.VS, data.voltajeSolar),
+        CS: n(data.CS, data.corrienteSolar),
+        SW: n(data.SW, data.potenciaSolar),
+        VB: n(data.VB, data.voltajeBateria),
+        CB: n(data.CB, data.corrienteBateria),
+        LV: n(data.LV, data.voltajeCarga),
+        LC: n(data.LC, data.corrienteCarga),
+        LP: n(data.LP, data.potenciaCarga),
+      };
+      if (Object.values(reg).some((v) => typeof v === 'number')) return reg;
+    } catch {
+      // continuar con parser de texto
+    }
+
+    // 2) RPI texto: HSE fecha hora VS CS SW VB CB LV LC LP ...
+    const rpi = raw.replace(/^HSE(?=\d{6}\b)/i, 'HSE ').split(/\s+/);
+    if (/^HSE/i.test(raw) && rpi.length >= 11) {
+      const nums = rpi.slice(3).map((s) => parseFloat(s));
+      if (nums.length >= 8 && nums.slice(0, 8).every((n) => !Number.isNaN(n))) {
+        return {
+          timestamp,
+          VS: nums[0],
+          CS: nums[1],
+          SW: nums[2],
+          VB: nums[3],
+          CB: nums[4],
+          LV: nums[5],
+          LC: nums[6],
+          LP: nums[7],
+        };
+      }
+    }
+
+    // 3) Trama barreras: HSE fecha hora VB CB SW ET PT CS VS
+    const parts = raw.split(/\s+/);
+    if (/^HSE/i.test(raw) && parts.length >= 10) {
+      const vb = parseFloat(parts[3]);
+      const cb = parseFloat(parts[4]);
+      const sw = parseFloat(parts[5]);
+      const lp = parseFloat(parts[7]);
+      const cs = parseFloat(parts[8]);
+      const vs = parseFloat(parts[9]);
+      if (![vb, cb, sw, lp, cs, vs].every((n) => Number.isNaN(n))) {
+        return {
+          timestamp,
+          VS: Number.isNaN(vs) ? undefined : vs,
+          CS: Number.isNaN(cs) ? undefined : cs,
+          SW: Number.isNaN(sw) ? undefined : sw,
+          VB: Number.isNaN(vb) ? undefined : vb,
+          CB: Number.isNaN(cb) ? undefined : cb,
+          LP: Number.isNaN(lp) ? undefined : lp,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  async generarExcelPromedios(options: {
+    topic: string;
+    startDate?: Date;
+    endDate?: Date;
+    entityName?: string;
+  }): Promise<{ buffer: Buffer; filename: string }> {
+    const topic = (options.topic || '').trim();
+    if (!topic) throw new Error('Topic requerido');
+
+    const qb = this.mqttMessageRepository.createQueryBuilder('message');
+    qb.where('message.topic = :topic', { topic });
+    if (options.startDate) qb.andWhere('message.timestamp >= :startDate', { startDate: options.startDate });
+    if (options.endDate) qb.andWhere('message.timestamp <= :endDate', { endDate: options.endDate });
+    qb.orderBy('message.timestamp', 'ASC');
+
+    const rawMessages = await qb.getMany();
+    const registros = rawMessages
+      .map((m) => this.parseRegistroEnergiaParaExport(this.procesarMensajeDesdeBD(m.message), new Date(m.timestamp).toISOString()))
+      .filter((r): r is NonNullable<typeof r> => !!r);
+
+    const mean = (vals: Array<number | undefined>) => {
+      const nums = vals.filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
+      if (!nums.length) return null;
+      return nums.reduce((a, b) => a + b, 0) / nums.length;
+    };
+    const fmt = (n: number | null | undefined) => (n == null ? '' : Number(n.toFixed(2)));
+    const entityName = (options.entityName || 'DISPOSITIVO').toUpperCase();
+
+    const diasMap = new Map<string, typeof registros>();
+    registros.forEach((r) => {
+      const k = new Date(r.timestamp).toISOString().slice(0, 10);
+      if (!diasMap.has(k)) diasMap.set(k, []);
+      diasMap.get(k)!.push(r);
+    });
+    const dias = Array.from(diasMap.keys()).sort();
+
+    const promedioVB = mean(registros.map((r) => r.VB));
+    const promedioSW = mean(registros.map((r) => r.SW));
+    const promedioCB = mean(registros.map((r) => r.CB));
+
+    const hourlyRows: Array<Record<string, any>> = [];
+    dias.forEach((d) => {
+      const regs = diasMap.get(d)!;
+      const hm = new Map<number, typeof registros>();
+      regs.forEach((r) => {
+        const h = new Date(r.timestamp).getHours();
+        if (!hm.has(h)) hm.set(h, []);
+        hm.get(h)!.push(r);
+      });
+      Array.from(hm.entries())
+        .sort((a, b) => a[0] - b[0])
+        .forEach(([h, arr]) => {
+          const row: Record<string, any> = {
+            Fecha: d,
+            Hora: `${d} ${String(h).padStart(2, '0')}:00:00`,
+            ID: entityName,
+          };
+          row.VSp = fmt(mean(arr.map((r) => r.VS)));
+          row.CSp = fmt(mean(arr.map((r) => r.CS)));
+          row.SWp = fmt(mean(arr.map((r) => r.SW)));
+          row.VBp = fmt(mean(arr.map((r) => r.VB)));
+          row.CBp = fmt(mean(arr.map((r) => r.CB)));
+          row.BW = row.VBp !== '' && row.CBp !== '' ? Number((row.VBp * row.CBp).toFixed(2)) : '';
+          row.LVp = fmt(mean(arr.map((r) => r.LV)));
+          row.LCp = fmt(mean(arr.map((r) => r.LC)));
+          row.LPp = fmt(mean(arr.map((r) => r.LP)));
+          hourlyRows.push(row);
+        });
+    });
+    const hourlyRowsByDate = new Map<string, Array<Record<string, any>>>();
+    hourlyRows.forEach((row) => {
+      if (!hourlyRowsByDate.has(row.Fecha)) {
+        hourlyRowsByDate.set(row.Fecha, []);
+      }
+      hourlyRowsByDate.get(row.Fecha)!.push(row);
+    });
+
+    const anomalies = registros
+      .map((r) => {
+        const issues: string[] = [];
+        let sev: 'ALTA' | 'MEDIA' | 'BAJA' = 'BAJA';
+        if (r.VB != null && (r.VB < 10 || r.VB > 80)) {
+          issues.push(`VB fuera de rango (${r.VB.toFixed(2)})`);
+          sev = 'ALTA';
+        }
+        if (r.SW != null && r.SW < 0) {
+          issues.push(`SW negativa (${r.SW.toFixed(2)})`);
+          sev = 'ALTA';
+        }
+        if (r.CB != null && r.CB < 0) {
+          issues.push(`CB negativa (${r.CB.toFixed(2)})`);
+          sev = 'MEDIA';
+        }
+        const faltantes = ['VS', 'CS', 'SW', 'VB', 'CB', 'LV', 'LC', 'LP'].filter((k) => (r as any)[k] == null);
+        if (faltantes.length >= 4) {
+          issues.push(`Campos faltantes: ${faltantes.join(', ')}`);
+          if (sev === 'BAJA') sev = 'MEDIA';
+        }
+        if (!issues.length) return null;
+        return { ...r, severidad: sev, detalle: issues.join(' | ') };
+      })
+      .filter((x): x is NonNullable<typeof x> => !!x);
+
+    const wb = new ExcelJS.Workbook();
+    const titleStyle = {
+      font: { bold: true, size: 14, color: { argb: 'FFFFFFFF' } },
+      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } },
+      alignment: { vertical: 'middle', horizontal: 'left' },
+    } as const;
+
+    const resumen = wb.addWorksheet('Resumen');
+    resumen.mergeCells('A1:H1');
+    resumen.getCell('A1').value = 'INFORMACION GENERAL';
+    Object.assign(resumen.getCell('A1'), titleStyle);
+    const primera = registros[0]?.timestamp ?? '';
+    const ultima = registros[registros.length - 1]?.timestamp ?? '';
+    resumen.addRows([
+      ['Total de registros', registros.length],
+      ['Rango de fechas', `${primera} - ${ultima}`],
+      ['Dias analizados', dias.length],
+      ['Promedio VB', fmt(promedioVB)],
+      ['Promedio SW', fmt(promedioSW)],
+      ['Promedio CB', fmt(promedioCB)],
+    ]);
+    resumen.addRow([]);
+    resumen.addRow(['PROMEDIOS POR HORARIO - RESUMEN GENERAL']);
+    resumen.addRows(hourlyRows.slice(0, 24).map((r) => [r.Fecha, r.Hora, r.ID, r.VSp, r.CSp, r.SWp, r.VBp, r.CBp, r.BW, r.LVp, r.LCp, r.LPp]));
+    resumen.addRow([]);
+    resumen.addRow(['PROMEDIOS POR HORARIO - POR DIAS']);
+    Array.from(hourlyRowsByDate.entries()).forEach(([fecha, rows]) => {
+      const diaTitle = resumen.addRow([`DIA: ${fecha}`]);
+      resumen.mergeCells(`A${diaTitle.number}:L${diaTitle.number}`);
+      resumen.addRow(['Fecha', 'Hora', 'ID', 'VSp', 'CSp', 'SWp', 'VBp', 'CBp', 'BW', 'LVp', 'LCp', 'LPp']);
+      rows.forEach((r) => {
+        resumen.addRow([r.Fecha, r.Hora, r.ID, r.VSp, r.CSp, r.SWp, r.VBp, r.CBp, r.BW, r.LVp, r.LCp, r.LPp]);
+      });
+      resumen.addRow([]);
+    });
+
+    const datos = wb.addWorksheet('Datos originales');
+    datos.mergeCells('A1:H1');
+    datos.getCell('A1').value = 'DATOS ORIGINALES';
+    Object.assign(datos.getCell('A1'), titleStyle);
+    datos.addRows([
+      ['ESTADISTICAS RESUMIDAS'],
+      ['Total de registros', registros.length],
+      ['Primera fecha', primera],
+      ['Ultima fecha', ultima],
+      ['Promedio VB', fmt(promedioVB)],
+      ['Promedio SW', fmt(promedioSW)],
+      ['Promedio CB', fmt(promedioCB)],
+      [],
+      ['timestamp', 'VS', 'CS', 'SW', 'VB', 'CB', 'LV', 'LC', 'LP'],
+    ]);
+    registros.forEach((r) => datos.addRow([r.timestamp, fmt(r.VS), fmt(r.CS), fmt(r.SW), fmt(r.VB), fmt(r.CB), fmt(r.LV), fmt(r.LC), fmt(r.LP)]));
+
+    const anom = wb.addWorksheet('Anomalias');
+    anom.mergeCells('A1:H1');
+    anom.getCell('A1').value = 'ANOMALIAS DETECTADAS - ANALISIS DE CALIDAD DE DATOS';
+    Object.assign(anom.getCell('A1'), titleStyle);
+    const alta = anomalies.filter((a) => a.severidad === 'ALTA').length;
+    const media = anomalies.filter((a) => a.severidad === 'MEDIA').length;
+    const baja = anomalies.filter((a) => a.severidad === 'BAJA').length;
+    anom.addRows([
+      ['ESTADISTICAS RESUMIDAS'],
+      ['Total de anomalias', anomalies.length],
+      ['Alta severidad', alta],
+      ['Media severidad', media],
+      ['Baja severidad', baja],
+      ['Porcentaje de anomalias', registros.length ? `${((anomalies.length / registros.length) * 100).toFixed(2)}%` : '0%'],
+      [],
+      ['MEDIA SEVERIDAD'],
+      ['timestamp', 'detalle', 'VB', 'SW', 'CB'],
+    ]);
+    anomalies.filter((a) => a.severidad === 'MEDIA').forEach((a) => anom.addRow([a.timestamp, a.detalle, fmt(a.VB), fmt(a.SW), fmt(a.CB)]));
+
+    const promDiarios = wb.addWorksheet('Promedios diarios');
+    promDiarios.mergeCells('A1:H1');
+    promDiarios.getCell('A1').value = 'PROMEDIOS DIARIOS - RESUMEN POR DIA';
+    Object.assign(promDiarios.getCell('A1'), titleStyle);
+    const diarios = dias.map((d) => {
+      const arr = diasMap.get(d)!;
+      const VB = mean(arr.map((r) => r.VB));
+      const CB = mean(arr.map((r) => r.CB));
+      const SW = mean(arr.map((r) => r.SW));
+      return { Fecha: d, VBP: fmt(VB), CBP: fmt(CB), SWP: fmt(SW), Registros: arr.length };
+    });
+    promDiarios.addRows([
+      ['ESTADISTICAS RESUMIDAS'],
+      ['Total de registros procesados', registros.length],
+      ['Promedio VB general', fmt(promedioVB)],
+      ['Promedio CB general', fmt(promedioCB)],
+      ['Promedio SW general', fmt(promedioSW)],
+      [],
+      ['PROMEDIOS DIARIOS'],
+      ['Fecha', 'Registros', 'VBp', 'CBp', 'SWp'],
+    ]);
+    diarios.forEach((r) => promDiarios.addRow([r.Fecha, r.Registros, r.VBP, r.CBP, r.SWP]));
+
+    const promHoras = wb.addWorksheet('Promedios horarios');
+    promHoras.mergeCells('A1:H1');
+    promHoras.getCell('A1').value = 'PROMEDIOS HORARIOS ORGANIZADOS POR DIAS';
+    Object.assign(promHoras.getCell('A1'), titleStyle);
+    promHoras.addRows([
+      ['ESTADISTICAS RESUMIDAS'],
+      ['Total de dias', dias.length],
+      ['Total de horas', hourlyRows.length],
+      ['Primera fecha', primera],
+      ['Ultima fecha', ultima],
+      ['Promedio general VB', fmt(promedioVB)],
+      ['Promedio general SW', fmt(promedioSW)],
+      ['Promedio general CB', fmt(promedioCB)],
+      [],
+    ]);
+    Array.from(hourlyRowsByDate.entries()).forEach(([fecha, rows]) => {
+      const diaTitle = promHoras.addRow([`DIA: ${fecha}`]);
+      promHoras.mergeCells(`A${diaTitle.number}:L${diaTitle.number}`);
+      promHoras.addRow(['Fecha', 'Hora', 'ID', 'VSp', 'CSp', 'SWp', 'VBp', 'CBp', 'BW', 'LVp', 'LCp', 'LPp']);
+      rows.forEach((r) => {
+        promHoras.addRow([r.Fecha, r.Hora, r.ID, r.VSp, r.CSp, r.SWp, r.VBp, r.CBp, r.BW, r.LVp, r.LCp, r.LPp]);
+      });
+      promHoras.addRow([]);
+    });
+
+    const resumenes = wb.addWorksheet('Resumenes diarios');
+    resumenes.mergeCells('A1:H1');
+    resumenes.getCell('A1').value = 'RESUMENES DIARIOS - ANALISIS COMPLETO POR DIA';
+    Object.assign(resumenes.getCell('A1'), titleStyle);
+    resumenes.addRows([
+      ['ESTADISTICAS RESUMIDAS'],
+      ['Dias', dias.length],
+      ['Registros', registros.length],
+      [],
+      ['Fecha', 'Registros', 'VBp', 'CBp', 'SWp', 'Anomalias'],
+    ]);
+    diarios.forEach((d) => {
+      const anomDia = anomalies.filter((a) => a.timestamp.slice(0, 10) === d.Fecha).length;
+      resumenes.addRow([d.Fecha, d.Registros, d.VBP, d.CBP, d.SWP, anomDia]);
+    });
+
+    const isHeaderRow = (values: any[]) => {
+      const norm = values.map((v) =>
+        typeof v === 'string' ? v.trim().toLowerCase() : '',
+      );
+      const hasFecha = norm.includes('fecha') || norm.includes('date');
+      const hasHora = norm.includes('hora') || norm.includes('time');
+      const hasReg = norm.includes('registros') || norm.includes('record');
+      const hasVS = norm.includes('vs') || norm.includes('vsp');
+      return (
+        (hasFecha && (hasHora || hasReg)) ||
+        (norm.includes('timestamp') && hasVS) ||
+        (hasReg && hasVS)
+      );
+    };
+
+    const isSectionTitle = (v: any) =>
+      typeof v === 'string' &&
+      (v.includes('ESTADISTICAS') ||
+        v.includes('PROMEDIOS') ||
+        v.includes('INFORMACION GENERAL') ||
+        v.includes('DATOS ORIGINALES') ||
+        v.includes('ANOMALIAS DETECTADAS') ||
+        v.includes('RESUMENES DIARIOS') ||
+        v.includes('MEDIA SEVERIDAD') ||
+        v.includes('DIA:'));
+
+    wb.creator = 'Centinela';
+    wb.lastModifiedBy = 'Centinela Backend';
+    wb.created = new Date();
+    wb.modified = new Date();
+
+    wb.eachSheet((s) => {
+      s.views = [{ state: 'frozen', xSplit: 0, ySplit: 1 }];
+
+      // Anchos por defecto legibles
+      s.columns = (s.columns || []).map((c, idx) => ({
+        ...c,
+        width: idx === 0 ? 26 : idx <= 2 ? 20 : 13,
+      }));
+
+      s.eachRow((row, rowNumber) => {
+        const values = (row.values as any[]).slice(1);
+        const first = values[0];
+
+        // Bordes y alineación base
+        row.eachCell((cell) => {
+          cell.alignment = {
+            vertical: 'middle',
+            horizontal: 'center',
+            wrapText: true,
+          };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FF9CA3AF' } },
+            left: { style: 'thin', color: { argb: 'FF9CA3AF' } },
+            bottom: { style: 'thin', color: { argb: 'FF9CA3AF' } },
+            right: { style: 'thin', color: { argb: 'FF9CA3AF' } },
+          };
+          if (typeof cell.value === 'number') {
+            cell.numFmt = '0.00';
+          }
+        });
+
+        // Fila de título principal
+        if (rowNumber === 1) {
+          row.height = 30;
+          row.font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } };
+          row.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF2C93B5' },
+          };
+          row.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+          return;
+        }
+
+        // Subtítulos de sección
+        if (isSectionTitle(first)) {
+          row.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+          row.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF1F4E78' },
+          };
+          return;
+        }
+
+        // Encabezados de tabla
+        if (isHeaderRow(values)) {
+          row.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+          row.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF4472C4' },
+          };
+          return;
+        }
+
+        // Zebra para datos
+        if (rowNumber % 2 === 0) {
+          row.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFF7FAFF' },
+          };
+        }
+
+        // Resaltado especial en hoja Anomalias para severidad
+        if (s.name === 'Anomalias') {
+          const sevCell = row.getCell(6);
+          const sev =
+            typeof sevCell.value === 'string'
+              ? sevCell.value.toLowerCase()
+              : '';
+          if (sev.includes('alta')) {
+            sevCell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFFECACA' },
+            };
+            sevCell.font = { bold: true, color: { argb: 'FFB91C1C' } };
+          } else if (sev.includes('media')) {
+            sevCell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFFFFF00' },
+            };
+            sevCell.font = { bold: true, color: { argb: 'FF111827' } };
+          } else if (sev.includes('baja')) {
+            sevCell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFBBF7D0' },
+            };
+            sevCell.font = { bold: true, color: { argb: 'FF166534' } };
+          }
+        }
+      });
+    });
+
+    const arr = await wb.xlsx.writeBuffer();
+    const buffer = Buffer.from(arr);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    return { buffer, filename: `analisis_promedios_${stamp}.xlsx` };
   }
 }
 

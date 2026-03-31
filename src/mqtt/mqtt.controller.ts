@@ -13,8 +13,10 @@ import {
   forwardRef,
   UseGuards,
   Request,
+  Res,
 } from '@nestjs/common';
 import type { Request as ExpressRequest } from 'express';
+import type { Response as ExpressResponse } from 'express';
 import { MqttService } from './mqtt.service';
 import { ConnectBrokerDto } from './dto/connect-broker.dto';
 import { PublishMessageDto } from './dto/publish-message.dto';
@@ -233,6 +235,36 @@ export class MqttController {
   async getUniqueTopics() {
     const topics = await this.mqttService.getUniqueTopics();
     return ResponseUtil.success({ topics }, 'Topics únicos obtenidos');
+  }
+
+  @Get('export/promedios-excel')
+  async exportPromediosExcel(
+    @Query('topic') topic: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('entityName') entityName?: string,
+    @Res() res?: ExpressResponse,
+  ) {
+    const result = await this.mqttService.generarExcelPromedios({
+      topic,
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate: endDate ? new Date(endDate) : undefined,
+      entityName,
+    });
+
+    if (!res) {
+      return ResponseUtil.error('No se pudo generar la respuesta de descarga');
+    }
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${result.filename}"`,
+    );
+    res.send(result.buffer);
   }
 
   @Delete('messages/cleanup-procesado')
