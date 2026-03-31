@@ -267,6 +267,33 @@ export class MqttController {
     res.send(result.buffer);
   }
 
+  @Get('export/data-bruta')
+  async exportDataBruta(
+    @Query('topic') topic: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('entityName') entityName?: string,
+    @Res() res?: ExpressResponse,
+  ) {
+    const result = await this.mqttService.exportarDataBrutaCsv({
+      topic,
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate: endDate ? new Date(endDate) : undefined,
+      entityName,
+    });
+
+    if (!res) {
+      return ResponseUtil.error('No se pudo generar la respuesta de descarga');
+    }
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${result.filename}"`,
+    );
+    res.send(result.buffer);
+  }
+
   @Delete('messages/cleanup-procesado')
   @UseGuards(RolesGuard)
   @Roles('admin')

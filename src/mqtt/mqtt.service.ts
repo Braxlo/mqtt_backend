@@ -1351,6 +1351,91 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     return null;
   }
 
+  async exportarDataBrutaCsv(options: {
+    topic: string;
+    startDate?: Date;
+    endDate?: Date;
+    entityName?: string;
+  }): Promise<{ buffer: Buffer; filename: string }> {
+    if (!options.topic) {
+      throw new Error('El topic es requerido para exportar data bruta');
+    }
+
+    const qb = this.mqttMessageRepository
+      .createQueryBuilder('message')
+      .where('message.topic = :topic', { topic: options.topic })
+      .orderBy('message.timestamp', 'ASC');
+
+    if (options.startDate) {
+      qb.andWhere('message.timestamp >= :startDate', {
+        startDate: options.startDate,
+      });
+    }
+    if (options.endDate) {
+      qb.andWhere('message.timestamp <= :endDate', {
+        endDate: options.endDate,
+      });
+    }
+
+    const rows = await qb.getMany();
+    const escapeCsv = (value: unknown): string => {
+      if (value == null) return '';
+      const text = String(value);
+      const escaped = text.replace(/"/g, '""');
+      return /[",\n\r]/.test(escaped) ? `"${escaped}"` : escaped;
+    };
+
+    const header = [
+      'timestamp',
+      'topic',
+      'message_raw',
+      'VS',
+      'CS',
+      'SW',
+      'VB',
+      'CB',
+      'LV',
+      'LC',
+      'LP',
+    ];
+    const lines: string[] = [header.join(',')];
+
+    rows.forEach((row) => {
+      const rawMessage = this.procesarMensajeDesdeBD(row.message);
+      const parsed = this.parseRegistroEnergiaParaExport(
+        rawMessage,
+        new Date(row.timestamp).toISOString(),
+      );
+      lines.push(
+        [
+          new Date(row.timestamp).toISOString(),
+          row.topic,
+          rawMessage,
+          parsed?.VS ?? '',
+          parsed?.CS ?? '',
+          parsed?.SW ?? '',
+          parsed?.VB ?? '',
+          parsed?.CB ?? '',
+          parsed?.LV ?? '',
+          parsed?.LC ?? '',
+          parsed?.LP ?? '',
+        ]
+          .map((cell) => escapeCsv(cell))
+          .join(','),
+      );
+    });
+
+    const csvContent = `\uFEFF${lines.join('\n')}`;
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const safeName = (options.entityName || 'dispositivo')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/gi, '_')
+      .replace(/^_+|_+$/g, '');
+    const filename = `data_bruta_${safeName || 'dispositivo'}_${stamp}.csv`;
+
+    return { buffer: Buffer.from(csvContent, 'utf8'), filename };
+  }
+
   async generarExcelPromedios(options: {
     topic: string;
     startDate?: Date;
