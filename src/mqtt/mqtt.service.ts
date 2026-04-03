@@ -1490,7 +1490,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         .forEach(([h, arr]) => {
           const row: Record<string, any> = {
             Fecha: d,
-            Hora: `${d} ${String(h).padStart(2, '0')}:00:00`,
+            Hora: `${d} ${String(h).padStart(2, '0')}:00:00 (${arr.length} reg.)`,
             ID: entityName,
           };
           row.VSp = fmt(mean(arr.map((r) => r.VS)));
@@ -1512,6 +1512,40 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       }
       hourlyRowsByDate.get(row.Fecha)!.push(row);
     });
+
+    /** Promedio por hora del reloj (0–23) en todo el periodo; solo horas con al menos un registro. */
+    const hourlyResumenGeneralRows: Array<Record<string, any>> = (() => {
+      const byHourOfDay = new Map<number, typeof registros>();
+      registros.forEach((r) => {
+        const h = new Date(r.timestamp).getHours();
+        if (!byHourOfDay.has(h)) byHourOfDay.set(h, []);
+        byHourOfDay.get(h)!.push(r);
+      });
+      const rows: Array<Record<string, any>> = [];
+      Array.from(byHourOfDay.entries())
+        .sort((a, b) => a[0] - b[0])
+        .forEach(([h, arr]) => {
+          const row: Record<string, any> = {
+            Fecha: 'Periodo completo',
+            Hora: `${String(h).padStart(2, '0')}:00 - ${String(h).padStart(2, '0')}:59 (${arr.length} reg.)`,
+            ID: entityName,
+          };
+          row.VSp = fmt(mean(arr.map((r) => r.VS)));
+          row.CSp = fmt(mean(arr.map((r) => r.CS)));
+          row.SWp = fmt(mean(arr.map((r) => r.SW)));
+          row.VBp = fmt(mean(arr.map((r) => r.VB)));
+          row.CBp = fmt(mean(arr.map((r) => r.CB)));
+          row.BW =
+            row.VBp !== '' && row.CBp !== ''
+              ? Number((row.VBp * row.CBp).toFixed(2))
+              : '';
+          row.LVp = fmt(mean(arr.map((r) => r.LV)));
+          row.LCp = fmt(mean(arr.map((r) => r.LC)));
+          row.LPp = fmt(mean(arr.map((r) => r.LP)));
+          rows.push(row);
+        });
+      return rows;
+    })();
 
     const anomalies = registros
       .map((r) => {
@@ -1561,8 +1595,25 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       ['Promedio CB', fmt(promedioCB)],
     ]);
     resumen.addRow([]);
-    resumen.addRow(['PROMEDIOS POR HORARIO - RESUMEN GENERAL']);
-    resumen.addRows(hourlyRows.slice(0, 24).map((r) => [r.Fecha, r.Hora, r.ID, r.VSp, r.CSp, r.SWp, r.VBp, r.CBp, r.BW, r.LVp, r.LCp, r.LPp]));
+    resumen.addRow([
+      'PROMEDIOS POR HORARIO - RESUMEN GENERAL (solo horas con registros en el periodo)',
+    ]);
+    resumen.addRows(
+      hourlyResumenGeneralRows.map((r) => [
+        r.Fecha,
+        r.Hora,
+        r.ID,
+        r.VSp,
+        r.CSp,
+        r.SWp,
+        r.VBp,
+        r.CBp,
+        r.BW,
+        r.LVp,
+        r.LCp,
+        r.LPp,
+      ]),
+    );
     resumen.addRow([]);
     resumen.addRow(['PROMEDIOS POR HORARIO - POR DIAS']);
     Array.from(hourlyRowsByDate.entries()).forEach(([fecha, rows]) => {
