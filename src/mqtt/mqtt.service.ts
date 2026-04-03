@@ -11,6 +11,11 @@ import { Luminaria } from '../entities/luminaria.entity';
 import { Letrero } from '../entities/letrero.entity';
 import { Barrera } from '../entities/barrera.entity';
 import { APP_CONSTANTS } from '../common/constants/app.constants';
+import {
+  formatFechaHoraChile,
+  getDiaOperacionalKeyChile,
+  getHourChile,
+} from '../common/chile-datetime';
 import * as ExcelJS from 'exceljs';
 
 @Injectable()
@@ -1386,7 +1391,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     };
 
     const header = [
-      'timestamp',
+      'fecha_hora_local',
+      'timestamp_utc_iso',
       'topic',
       'message_raw',
       'VS',
@@ -1402,13 +1408,15 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
     rows.forEach((row) => {
       const rawMessage = this.procesarMensajeDesdeBD(row.message);
+      const ts = new Date(row.timestamp);
       const parsed = this.parseRegistroEnergiaParaExport(
         rawMessage,
-        new Date(row.timestamp).toISOString(),
+        ts.toISOString(),
       );
       lines.push(
         [
-          new Date(row.timestamp).toISOString(),
+          formatFechaHoraChile(ts),
+          ts.toISOString(),
           row.topic,
           rawMessage,
           parsed?.VS ?? '',
@@ -1464,24 +1472,26 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const fmt = (n: number | null | undefined) => (n == null ? '' : Number(n.toFixed(2)));
     const entityName = (options.entityName || 'DISPOSITIVO').toUpperCase();
 
-    const diasMap = new Map<string, typeof registros>();
+    /** Día operacional (08:00→08:00), misma regla que el frontend */
+    const opsDiaMap = new Map<string, typeof registros>();
     registros.forEach((r) => {
-      const k = new Date(r.timestamp).toISOString().slice(0, 10);
-      if (!diasMap.has(k)) diasMap.set(k, []);
-      diasMap.get(k)!.push(r);
+      const k = getDiaOperacionalKeyChile(new Date(r.timestamp));
+      if (!opsDiaMap.has(k)) opsDiaMap.set(k, []);
+      opsDiaMap.get(k)!.push(r);
     });
-    const dias = Array.from(diasMap.keys()).sort();
+    const diasOp = Array.from(opsDiaMap.keys()).sort();
 
     const promedioVB = mean(registros.map((r) => r.VB));
     const promedioSW = mean(registros.map((r) => r.SW));
     const promedioCB = mean(registros.map((r) => r.CB));
 
     const hourlyRows: Array<Record<string, any>> = [];
-    dias.forEach((d) => {
-      const regs = diasMap.get(d)!;
+    diasOp.forEach((d) => {
+      const regs = opsDiaMap.get(d)!;
       const hm = new Map<number, typeof registros>();
       regs.forEach((r) => {
-        const h = new Date(r.timestamp).getHours();
+        const h = getHourChile(new Date(r.timestamp));
+        if (Number.isNaN(h)) return;
         if (!hm.has(h)) hm.set(h, []);
         hm.get(h)!.push(r);
       });
@@ -1490,7 +1500,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         .forEach(([h, arr]) => {
           const row: Record<string, any> = {
             Fecha: d,
-            Hora: `${d} ${String(h).padStart(2, '0')}:00:00 (${arr.length} reg.)`,
+            Hora: `${d} · ${String(h).padStart(2, '0')}:00–${String(h).padStart(2, '0')}:59 (${arr.length} muestras)`,
             ID: entityName,
           };
           row.VSp = fmt(mean(arr.map((r) => r.VS)));
@@ -1517,7 +1527,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const hourlyResumenGeneralRows: Array<Record<string, any>> = (() => {
       const byHourOfDay = new Map<number, typeof registros>();
       registros.forEach((r) => {
-        const h = new Date(r.timestamp).getHours();
+        const h = getHourChile(new Date(r.timestamp));
+        if (Number.isNaN(h)) return;
         if (!byHourOfDay.has(h)) byHourOfDay.set(h, []);
         byHourOfDay.get(h)!.push(r);
       });
@@ -1527,7 +1538,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         .forEach(([h, arr]) => {
           const row: Record<string, any> = {
             Fecha: 'Periodo completo',
-            Hora: `${String(h).padStart(2, '0')}:00 - ${String(h).padStart(2, '0')}:59 (${arr.length} reg.)`,
+            Hora: `${String(h).padStart(2, '0')}:00–${String(h).padStart(2, '0')}:59 (${arr.length} muestras)`,
             ID: entityName,
           };
           row.VSp = fmt(mean(arr.map((r) => r.VS)));
@@ -1576,20 +1587,47 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const wb = new ExcelJS.Workbook();
     const titleStyle = {
       font: { bold: true, size: 14, color: { argb: 'FFFFFFFF' } },
-      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } },
+      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF15803D' } },
       alignment: { vertical: 'middle', horizontal: 'left' },
     } as const;
+
+    const notas = wb.addWorksheet('Notas');
+    notas.mergeCells('A1:H1');
+    notas.getCell('A1').value = 'INFORMACIÓN Y METODOLOGÍA';
+    Object.assign(notas.getCell('A1'), titleStyle);
+    notas.addRows([
+      [
+        'Zona horaria fija del sistema operativo del servicio. Todas las horas y fechas del informe usan esa hora civil, no la hora del servidor donde se abre el archivo.',
+      ],
+      [
+        'Día operacional: de 08:00 a 08:00 del día siguiente (etiqueta del día = fecha calendario del segundo tramo), alineado con la pantalla Registros → Promedios.',
+      ],
+      [
+        'Promedios horarios (LPp, VBp, etc.): media aritmética de todas las muestras MQTT recibidas en esa hora (00–59 min) según el reloj del informe. No es el valor máximo ni mínimo de la hora.',
+      ],
+      [
+        'Tabla de registros (muestras puntuales): cada fila es una medición en un instante. Es normal que LP (u otras magnitudes) sea distinto del promedio horario: por ejemplo, LP entre 300–400 W en varias muestras puede dar un promedio horario de 450–600 W si hubo picos u otras muestras más altas en la misma hora.',
+      ],
+      [
+        'Columna fecha/hora en "Datos originales": formato local del informe (es-CL). El instante UTC interno de la base se muestra de forma legible para evitar confusiones al abrir el archivo en otro huso horario.',
+      ],
+    ]);
+    notas.getColumn(1).width = 100;
 
     const resumen = wb.addWorksheet('Resumen');
     resumen.mergeCells('A1:H1');
     resumen.getCell('A1').value = 'INFORMACION GENERAL';
     Object.assign(resumen.getCell('A1'), titleStyle);
-    const primera = registros[0]?.timestamp ?? '';
-    const ultima = registros[registros.length - 1]?.timestamp ?? '';
+    const primera = registros[0]
+      ? formatFechaHoraChile(new Date(registros[0].timestamp))
+      : '';
+    const ultima = registros.length
+      ? formatFechaHoraChile(new Date(registros[registros.length - 1].timestamp))
+      : '';
     resumen.addRows([
       ['Total de registros', registros.length],
       ['Rango de fechas', `${primera} - ${ultima}`],
-      ['Dias analizados', dias.length],
+      ['Días operacionales analizados', diasOp.length],
       ['Promedio VB', fmt(promedioVB)],
       ['Promedio SW', fmt(promedioSW)],
       ['Promedio CB', fmt(promedioCB)],
@@ -1633,15 +1671,27 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     datos.addRows([
       ['ESTADISTICAS RESUMIDAS'],
       ['Total de registros', registros.length],
-      ['Primera fecha', primera],
-      ['Ultima fecha', ultima],
+      ['Primera fecha/hora', primera],
+      ['Última fecha/hora', ultima],
       ['Promedio VB', fmt(promedioVB)],
       ['Promedio SW', fmt(promedioSW)],
       ['Promedio CB', fmt(promedioCB)],
       [],
-      ['timestamp', 'VS', 'CS', 'SW', 'VB', 'CB', 'LV', 'LC', 'LP'],
+      ['fecha_hora_local', 'VS', 'CS', 'SW', 'VB', 'CB', 'LV', 'LC', 'LP'],
     ]);
-    registros.forEach((r) => datos.addRow([r.timestamp, fmt(r.VS), fmt(r.CS), fmt(r.SW), fmt(r.VB), fmt(r.CB), fmt(r.LV), fmt(r.LC), fmt(r.LP)]));
+    registros.forEach((r) =>
+      datos.addRow([
+        formatFechaHoraChile(new Date(r.timestamp)),
+        fmt(r.VS),
+        fmt(r.CS),
+        fmt(r.SW),
+        fmt(r.VB),
+        fmt(r.CB),
+        fmt(r.LV),
+        fmt(r.LC),
+        fmt(r.LP),
+      ]),
+    );
 
     const anom = wb.addWorksheet('Anomalias');
     anom.mergeCells('A1:H1');
@@ -1661,14 +1711,24 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       ['MEDIA SEVERIDAD'],
       ['timestamp', 'detalle', 'VB', 'SW', 'CB'],
     ]);
-    anomalies.filter((a) => a.severidad === 'MEDIA').forEach((a) => anom.addRow([a.timestamp, a.detalle, fmt(a.VB), fmt(a.SW), fmt(a.CB)]));
+    anomalies
+      .filter((a) => a.severidad === 'MEDIA')
+      .forEach((a) =>
+        anom.addRow([
+          formatFechaHoraChile(new Date(a.timestamp)),
+          a.detalle,
+          fmt(a.VB),
+          fmt(a.SW),
+          fmt(a.CB),
+        ]),
+      );
 
     const promDiarios = wb.addWorksheet('Promedios diarios');
     promDiarios.mergeCells('A1:H1');
     promDiarios.getCell('A1').value = 'PROMEDIOS DIARIOS - RESUMEN POR DIA';
     Object.assign(promDiarios.getCell('A1'), titleStyle);
-    const diarios = dias.map((d) => {
-      const arr = diasMap.get(d)!;
+    const diarios = diasOp.map((d) => {
+      const arr = opsDiaMap.get(d)!;
       const VB = mean(arr.map((r) => r.VB));
       const CB = mean(arr.map((r) => r.CB));
       const SW = mean(arr.map((r) => r.SW));
@@ -1692,7 +1752,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     Object.assign(promHoras.getCell('A1'), titleStyle);
     promHoras.addRows([
       ['ESTADISTICAS RESUMIDAS'],
-      ['Total de dias', dias.length],
+      ['Total dias operacionales', diasOp.length],
       ['Total de horas', hourlyRows.length],
       ['Primera fecha', primera],
       ['Ultima fecha', ultima],
@@ -1717,13 +1777,15 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     Object.assign(resumenes.getCell('A1'), titleStyle);
     resumenes.addRows([
       ['ESTADISTICAS RESUMIDAS'],
-      ['Dias', dias.length],
+      ['Dias operacionales', diasOp.length],
       ['Registros', registros.length],
       [],
       ['Fecha', 'Registros', 'VBp', 'CBp', 'SWp', 'Anomalias'],
     ]);
     diarios.forEach((d) => {
-      const anomDia = anomalies.filter((a) => a.timestamp.slice(0, 10) === d.Fecha).length;
+      const anomDia = anomalies.filter(
+        (a) => getDiaOperacionalKeyChile(new Date(a.timestamp)) === d.Fecha,
+      ).length;
       resumenes.addRow([d.Fecha, d.Registros, d.VBP, d.CBP, d.SWP, anomDia]);
     });
 
@@ -1796,7 +1858,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           row.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'FF2C93B5' },
+            fgColor: { argb: 'FF15803D' },
           };
           row.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
           return;
@@ -1819,7 +1881,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           row.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'FF4472C4' },
+            fgColor: { argb: 'FF16A34A' },
           };
           return;
         }
@@ -1869,7 +1931,18 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const arr = await wb.xlsx.writeBuffer();
     const buffer = Buffer.from(arr);
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    return { buffer, filename: `analisis_promedios_${stamp}.xlsx` };
+    const safeName = (options.entityName || 'dispositivo')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/gi, '_')
+      .replace(/^_+|_+$/g, '');
+    const rangePart =
+      options.startDate && options.endDate
+        ? `${options.startDate.toISOString().slice(0, 10)}_${options.endDate.toISOString().slice(0, 10)}`
+        : 'sin_rango';
+    return {
+      buffer,
+      filename: `analisis_promedios_${safeName || 'dispositivo'}_${rangePart}_${stamp}.xlsx`,
+    };
   }
 }
 
