@@ -12,9 +12,12 @@ import { Letrero } from '../entities/letrero.entity';
 import { Barrera } from '../entities/barrera.entity';
 import { APP_CONSTANTS } from '../common/constants/app.constants';
 import {
+  enumerarEtiquetasYmdInclusive,
+  formatoVentanaOperativaCorta,
   formatFechaHoraChile,
   getDiaOperacionalKeyChile,
   getHourChile,
+  rangoOperacionalQueryUtc,
 } from '../common/chile-datetime';
 import * as ExcelJS from 'exceljs';
 

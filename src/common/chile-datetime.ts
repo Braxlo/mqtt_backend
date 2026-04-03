@@ -49,3 +49,62 @@ export function getDiaOperacionalKeyChile(d: Date): string {
   if (Number.isNaN(h)) return base;
   return h >= 8 ? addDaysToYmd(base, 1) : base;
 }
+
+function parseYmd(ymd: string): { y: number; m: number; d: number } | null {
+  const [y, m, d] = ymd.split('-').map((n) => parseInt(n, 10));
+  if (Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(d)) return null;
+  return { y, m, d };
+}
+
+/** Inicio UTC del día operacional etiquetado `ymd` (08:00 Chile del día calendario anterior). */
+export function operacionalDiaInicioUtcDate(ymd: string): Date {
+  const prev = addDaysToYmd(ymd, -1);
+  const p = parseYmd(prev);
+  if (!p) return new Date(NaN);
+  return new Date(
+    `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}T08:00:00-03:00`,
+  );
+}
+
+/** Último instante incluido del día operacional (07:59:59 Chile del día `ymd`). */
+export function operacionalDiaFinInclusiveUtcDate(ymd: string): Date {
+  const p = parseYmd(ymd);
+  if (!p) return new Date(NaN);
+  return new Date(
+    `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}T07:59:59-03:00`,
+  );
+}
+
+/** Rango de timestamps para filtrar por etiquetas de día operacional Desde…Hasta (inclusive). */
+export function rangoOperacionalQueryUtc(fechaInicioYmd: string, fechaFinYmd: string): { tMin: Date; tMax: Date } {
+  return {
+    tMin: operacionalDiaInicioUtcDate(fechaInicioYmd),
+    tMax: operacionalDiaFinInclusiveUtcDate(fechaFinYmd),
+  };
+}
+
+/** Etiquetas YYYY-MM-DD consecutivas entre dos fechas (inclusive). */
+export function enumerarEtiquetasYmdInclusive(inicio: string, fin: string): string[] {
+  if (!inicio || !fin) return [];
+  const a = inicio <= fin ? inicio : fin;
+  const b = inicio <= fin ? fin : inicio;
+  const out: string[] = [];
+  let cur = a;
+  for (;;) {
+    out.push(cur);
+    if (cur === b) break;
+    cur = addDaysToYmd(cur, 1);
+  }
+  return out;
+}
+
+/** Texto corto de ventana operativa (misma idea que el frontend). */
+export function formatoVentanaOperativaCorta(diaKeyYmd: string): string {
+  const prev = addDaysToYmd(diaKeyYmd, -1);
+  const fmt = (ymd: string) => {
+    const p = parseYmd(ymd);
+    if (!p) return ymd;
+    return `${String(p.d).padStart(2, '0')}/${String(p.m).padStart(2, '0')}/${p.y}`;
+  };
+  return `${fmt(prev)} 08:00 → ${fmt(diaKeyYmd)} 07:59`;
+}

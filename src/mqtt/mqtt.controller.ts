@@ -243,6 +243,8 @@ export class MqttController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('entityName') entityName?: string,
+    @Query('fechaEtiquetaDesde') fechaEtiquetaDesde?: string,
+    @Query('fechaEtiquetaHasta') fechaEtiquetaHasta?: string,
     @Res() res?: ExpressResponse,
   ) {
     const result = await this.mqttService.generarExcelPromedios({
@@ -250,6 +252,8 @@ export class MqttController {
       startDate: startDate ? new Date(startDate) : undefined,
       endDate: endDate ? new Date(endDate) : undefined,
       entityName,
+      fechaEtiquetaDesde: fechaEtiquetaDesde?.trim() || undefined,
+      fechaEtiquetaHasta: fechaEtiquetaHasta?.trim() || undefined,
     });
 
     if (!res) {
