@@ -1481,9 +1481,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     });
     const diasOp = Array.from(opsDiaMap.keys()).sort();
 
+    const promedioVS = mean(registros.map((r) => r.VS));
+    const promedioCS = mean(registros.map((r) => r.CS));
     const promedioVB = mean(registros.map((r) => r.VB));
     const promedioSW = mean(registros.map((r) => r.SW));
     const promedioCB = mean(registros.map((r) => r.CB));
+    const promedioLV = mean(registros.map((r) => r.LV));
+    const promedioLC = mean(registros.map((r) => r.LC));
+    const promedioLP = mean(registros.map((r) => r.LP));
 
     const hourlyRows: Array<Record<string, any>> = [];
     diasOp.forEach((d) => {
@@ -1628,13 +1633,32 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       ['Total de registros', registros.length],
       ['Rango de fechas', `${primera} - ${ultima}`],
       ['Días operacionales analizados', diasOp.length],
-      ['Promedio VB', fmt(promedioVB)],
+      ['Promedio VS', fmt(promedioVS)],
+      ['Promedio CS', fmt(promedioCS)],
       ['Promedio SW', fmt(promedioSW)],
+      ['Promedio VB', fmt(promedioVB)],
       ['Promedio CB', fmt(promedioCB)],
+      ['Promedio LV', fmt(promedioLV)],
+      ['Promedio LC', fmt(promedioLC)],
+      ['Promedio LP', fmt(promedioLP)],
     ]);
     resumen.addRow([]);
     resumen.addRow([
       'PROMEDIOS POR HORARIO - RESUMEN GENERAL (solo horas con registros en el periodo)',
+    ]);
+    resumen.addRow([
+      'Fecha',
+      'Hora',
+      'ID',
+      'VSp',
+      'CSp',
+      'SWp',
+      'VBp',
+      'CBp',
+      'BW',
+      'LVp',
+      'LCp',
+      'LPp',
     ]);
     resumen.addRows(
       hourlyResumenGeneralRows.map((r) => [
@@ -1665,7 +1689,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     });
 
     const datos = wb.addWorksheet('Datos originales');
-    datos.mergeCells('A1:H1');
+    datos.mergeCells('A1:I1');
     datos.getCell('A1').value = 'DATOS ORIGINALES';
     Object.assign(datos.getCell('A1'), titleStyle);
     datos.addRows([
@@ -1673,9 +1697,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       ['Total de registros', registros.length],
       ['Primera fecha/hora', primera],
       ['Última fecha/hora', ultima],
-      ['Promedio VB', fmt(promedioVB)],
+      ['Promedio VS', fmt(promedioVS)],
+      ['Promedio CS', fmt(promedioCS)],
       ['Promedio SW', fmt(promedioSW)],
+      ['Promedio VB', fmt(promedioVB)],
       ['Promedio CB', fmt(promedioCB)],
+      ['Promedio LV', fmt(promedioLV)],
+      ['Promedio LC', fmt(promedioLC)],
+      ['Promedio LP', fmt(promedioLP)],
       [],
       ['fecha_hora_local', 'VS', 'CS', 'SW', 'VB', 'CB', 'LV', 'LC', 'LP'],
     ]);
@@ -1724,30 +1753,75 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       );
 
     const promDiarios = wb.addWorksheet('Promedios diarios');
-    promDiarios.mergeCells('A1:H1');
+    promDiarios.mergeCells('A1:J1');
     promDiarios.getCell('A1').value = 'PROMEDIOS DIARIOS - RESUMEN POR DIA';
     Object.assign(promDiarios.getCell('A1'), titleStyle);
     const diarios = diasOp.map((d) => {
       const arr = opsDiaMap.get(d)!;
+      const VS = mean(arr.map((r) => r.VS));
+      const CS = mean(arr.map((r) => r.CS));
+      const SW = mean(arr.map((r) => r.SW));
       const VB = mean(arr.map((r) => r.VB));
       const CB = mean(arr.map((r) => r.CB));
-      const SW = mean(arr.map((r) => r.SW));
-      return { Fecha: d, VBP: fmt(VB), CBP: fmt(CB), SWP: fmt(SW), Registros: arr.length };
+      const LV = mean(arr.map((r) => r.LV));
+      const LC = mean(arr.map((r) => r.LC));
+      const LP = mean(arr.map((r) => r.LP));
+      return {
+        Fecha: d,
+        Registros: arr.length,
+        VSP: fmt(VS),
+        CSP: fmt(CS),
+        SWP: fmt(SW),
+        VBP: fmt(VB),
+        CBP: fmt(CB),
+        LVP: fmt(LV),
+        LCP: fmt(LC),
+        LPP: fmt(LP),
+      };
     });
     promDiarios.addRows([
       ['ESTADISTICAS RESUMIDAS'],
       ['Total de registros procesados', registros.length],
+      ['Promedio VS general', fmt(promedioVS)],
+      ['Promedio CS general', fmt(promedioCS)],
+      ['Promedio SW general', fmt(promedioSW)],
       ['Promedio VB general', fmt(promedioVB)],
       ['Promedio CB general', fmt(promedioCB)],
-      ['Promedio SW general', fmt(promedioSW)],
+      ['Promedio LV general', fmt(promedioLV)],
+      ['Promedio LC general', fmt(promedioLC)],
+      ['Promedio LP general', fmt(promedioLP)],
       [],
       ['PROMEDIOS DIARIOS'],
-      ['Fecha', 'Registros', 'VBp', 'CBp', 'SWp'],
+      [
+        'Fecha',
+        'Registros',
+        'VSp',
+        'CSp',
+        'SWp',
+        'VBp',
+        'CBp',
+        'LVp',
+        'LCp',
+        'LPp',
+      ],
     ]);
-    diarios.forEach((r) => promDiarios.addRow([r.Fecha, r.Registros, r.VBP, r.CBP, r.SWP]));
+    diarios.forEach((r) =>
+      promDiarios.addRow([
+        r.Fecha,
+        r.Registros,
+        r.VSP,
+        r.CSP,
+        r.SWP,
+        r.VBP,
+        r.CBP,
+        r.LVP,
+        r.LCP,
+        r.LPP,
+      ]),
+    );
 
     const promHoras = wb.addWorksheet('Promedios horarios');
-    promHoras.mergeCells('A1:H1');
+    promHoras.mergeCells('A1:L1');
     promHoras.getCell('A1').value = 'PROMEDIOS HORARIOS ORGANIZADOS POR DIAS';
     Object.assign(promHoras.getCell('A1'), titleStyle);
     promHoras.addRows([
@@ -1756,9 +1830,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       ['Total de horas', hourlyRows.length],
       ['Primera fecha', primera],
       ['Ultima fecha', ultima],
-      ['Promedio general VB', fmt(promedioVB)],
+      ['Promedio general VS', fmt(promedioVS)],
+      ['Promedio general CS', fmt(promedioCS)],
       ['Promedio general SW', fmt(promedioSW)],
+      ['Promedio general VB', fmt(promedioVB)],
       ['Promedio general CB', fmt(promedioCB)],
+      ['Promedio general LV', fmt(promedioLV)],
+      ['Promedio general LC', fmt(promedioLC)],
+      ['Promedio general LP', fmt(promedioLP)],
       [],
     ]);
     Array.from(hourlyRowsByDate.entries()).forEach(([fecha, rows]) => {
@@ -1772,7 +1851,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     });
 
     const resumenes = wb.addWorksheet('Resumenes diarios');
-    resumenes.mergeCells('A1:H1');
+    resumenes.mergeCells('A1:K1');
     resumenes.getCell('A1').value = 'RESUMENES DIARIOS - ANALISIS COMPLETO POR DIA';
     Object.assign(resumenes.getCell('A1'), titleStyle);
     resumenes.addRows([
@@ -1780,13 +1859,37 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       ['Dias operacionales', diasOp.length],
       ['Registros', registros.length],
       [],
-      ['Fecha', 'Registros', 'VBp', 'CBp', 'SWp', 'Anomalias'],
+      [
+        'Fecha',
+        'Registros',
+        'VSp',
+        'CSp',
+        'SWp',
+        'VBp',
+        'CBp',
+        'LVp',
+        'LCp',
+        'LPp',
+        'Anomalias',
+      ],
     ]);
     diarios.forEach((d) => {
       const anomDia = anomalies.filter(
         (a) => getDiaOperacionalKeyChile(new Date(a.timestamp)) === d.Fecha,
       ).length;
-      resumenes.addRow([d.Fecha, d.Registros, d.VBP, d.CBP, d.SWP, anomDia]);
+      resumenes.addRow([
+        d.Fecha,
+        d.Registros,
+        d.VSP,
+        d.CSP,
+        d.SWP,
+        d.VBP,
+        d.CBP,
+        d.LVP,
+        d.LCP,
+        d.LPP,
+        anomDia,
+      ]);
     });
 
     const isHeaderRow = (values: any[]) => {
