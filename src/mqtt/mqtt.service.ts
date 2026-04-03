@@ -1273,7 +1273,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private parseRegistroEnergiaParaExport(message: string, timestamp: string): {
+  private parseRegistroEnergiaParaExport(
+    message: string,
+    timestamp: string,
+    topic?: string,
+  ): {
     timestamp: string;
     VS?: number;
     CS?: number;
@@ -1287,14 +1291,16 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const raw = (message || '').trim();
     if (!raw) return null;
 
-    // 1) Intentar JSON
+    // 1) Intentar JSON (parsearTramaHSE usa voltajeCargas/corrienteCargas/potenciaCargas — plural)
     try {
       const data = JSON.parse(raw) as Record<string, unknown>;
-      const n = (a: unknown, b?: unknown) => {
-        const v = a ?? b;
-        if (v == null) return undefined;
-        const num = Number(v);
-        return Number.isNaN(num) ? undefined : num;
+      const n = (...candidates: unknown[]) => {
+        for (const v of candidates) {
+          if (v == null) continue;
+          const num = Number(v);
+          if (!Number.isNaN(num)) return num;
+        }
+        return undefined;
       };
       const reg = {
         timestamp,
@@ -1303,9 +1309,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         SW: n(data.SW, data.potenciaSolar),
         VB: n(data.VB, data.voltajeBateria),
         CB: n(data.CB, data.corrienteBateria),
-        LV: n(data.LV, data.voltajeCarga),
-        LC: n(data.LC, data.corrienteCarga),
-        LP: n(data.LP, data.potenciaCarga),
+        LV: n(data.LV, data.voltajeCargas, data.voltajeCarga),
+        LC: n(data.LC, data.corrienteCargas, data.corrienteCarga),
+        LP: n(data.LP, data.potenciaCargas, data.potenciaCarga),
       };
       if (Object.values(reg).some((v) => typeof v === 'number')) return reg;
     } catch {
@@ -1331,7 +1337,41 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // 3) Trama barreras: HSE fecha hora VB CB SW ET PT CS VS
+    // 3) Trama HSE/HSP binaria o hex (misma lógica que ingest; no es JSON ni 8 números separados por espacio)
+    if (raw.length >= 20) {
+      try {
+        const buf = Buffer.from(raw, 'binary');
+        if (this.esTramaHSE(buf)) {
+          const hse = this.parsearTramaHSE(buf, topic);
+          if (hse) {
+            const pick = (...vals: unknown[]): number | undefined => {
+              for (const v of vals) {
+                if (v == null || v === '') continue;
+                const num = Number(v);
+                if (!Number.isNaN(num)) return num;
+              }
+              return undefined;
+            };
+            const out = {
+              timestamp,
+              VS: pick(hse.voltajeSolar, hse.VS),
+              CS: pick(hse.corrienteSolar, hse.CS),
+              SW: pick(hse.potenciaSolar, hse.SW),
+              VB: pick(hse.voltajeBateria, hse.VB),
+              CB: pick(hse.corrienteBateria, hse.CB),
+              LV: pick(hse.voltajeCargas, hse.voltajeCarga, hse.LV),
+              LC: pick(hse.corrienteCargas, hse.corrienteCarga, hse.LC),
+              LP: pick(hse.potenciaCargas, hse.potenciaCarga, hse.LP),
+            };
+            if (Object.values(out).some((v) => typeof v === 'number')) return out;
+          }
+        }
+      } catch {
+        // ignorar
+      }
+    }
+
+    // 4) Trama barreras: HSE fecha hora VB CB SW ET PT CS VS
     const parts = raw.split(/\s+/);
     if (/^HSE/i.test(raw) && parts.length >= 10) {
       const vb = parseFloat(parts[3]);
@@ -1412,6 +1452,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       const parsed = this.parseRegistroEnergiaParaExport(
         rawMessage,
         ts.toISOString(),
+        options.topic,
       );
       lines.push(
         [
@@ -1461,7 +1502,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
     const rawMessages = await qb.getMany();
     const registros = rawMessages
-      .map((m) => this.parseRegistroEnergiaParaExport(this.procesarMensajeDesdeBD(m.message), new Date(m.timestamp).toISOString()))
+      .map((m) =>
+        this.parseRegistroEnergiaParaExport(
+          this.procesarMensajeDesdeBD(m.message),
+          new Date(m.timestamp).toISOString(),
+          topic,
+        ),
+      )
       .filter((r): r is NonNullable<typeof r> => !!r);
 
     const mean = (vals: Array<number | undefined>) => {
