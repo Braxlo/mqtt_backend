@@ -39,15 +39,15 @@ function addDaysToYmd(ymd: string, days: number): string {
 }
 
 /**
- * Etiqueta de día operacional: de 08:00 Chile (inclusive) del día calendario D
- * hasta antes de 08:00 del día D+1 → se etiqueta como día D+1 (igual que el frontend).
+ * Etiqueta = día calendario en que **empieza** el turno a las 08:00 (igual que el frontend).
+ * Ventana: ese día 08:00 → día siguiente 07:59.
  */
 export function getDiaOperacionalKeyChile(d: Date): string {
   const base = getCalendarYmdChile(d);
   if (!base) return '';
   const h = getHourChile(d);
   if (Number.isNaN(h)) return base;
-  return h >= 8 ? addDaysToYmd(base, 1) : base;
+  return h >= 8 ? base : addDaysToYmd(base, -1);
 }
 
 function parseYmd(ymd: string): { y: number; m: number; d: number } | null {
@@ -56,19 +56,19 @@ function parseYmd(ymd: string): { y: number; m: number; d: number } | null {
   return { y, m, d };
 }
 
-/** Inicio UTC del día operacional etiquetado `ymd` (08:00 Chile del día calendario anterior). */
+/** 08:00 Chile del día de la etiqueta (inicio del día operacional). */
 export function operacionalDiaInicioUtcDate(ymd: string): Date {
-  const prev = addDaysToYmd(ymd, -1);
-  const p = parseYmd(prev);
+  const p = parseYmd(ymd);
   if (!p) return new Date(NaN);
   return new Date(
     `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}T08:00:00-03:00`,
   );
 }
 
-/** Último instante incluido del día operacional (07:59:59 Chile del día `ymd`). */
+/** 07:59:59 Chile del día calendario siguiente (fin inclusivo del día operacional etiquetado `ymd`). */
 export function operacionalDiaFinInclusiveUtcDate(ymd: string): Date {
-  const p = parseYmd(ymd);
+  const next = addDaysToYmd(ymd, 1);
+  const p = parseYmd(next);
   if (!p) return new Date(NaN);
   return new Date(
     `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}T07:59:59-03:00`,
@@ -98,21 +98,20 @@ export function enumerarEtiquetasYmdInclusive(inicio: string, fin: string): stri
   return out;
 }
 
-/** Texto corto de ventana operativa (misma idea que el frontend). */
+/** Etiqueta = día de inicio 08:00; ventana hasta 07:59 del día siguiente. */
 export function formatoVentanaOperativaCorta(diaKeyYmd: string): string {
-  const prev = addDaysToYmd(diaKeyYmd, -1);
+  const next = addDaysToYmd(diaKeyYmd, 1);
   const fmt = (ymd: string) => {
     const p = parseYmd(ymd);
     if (!p) return ymd;
     return `${String(p.d).padStart(2, '0')}/${String(p.m).padStart(2, '0')}/${p.y}`;
   };
-  return `${fmt(prev)} 08:00 → ${fmt(diaKeyYmd)} 07:59`;
+  return `${fmt(diaKeyYmd)} 08:00 → ${fmt(next)} 07:59`;
 }
 
 /**
  * ¿La marca de tiempo cae en la ventana del día operacional `diaKeyYmd`?
- * Misma regla que el promedio del día en pantalla: desde las 08:00 del día calendario anterior
- * hasta las 07:59:59 del día de la etiqueta (cierre a las 08:00 del día siguiente).
+ * Desde 08:00 del día etiqueta hasta 07:59:59 del día calendario siguiente.
  */
 export function registroEnVentanaOperacionalEtiqueta(isoOrDate: string | Date, diaKeyYmd: string): boolean {
   const d = typeof isoOrDate === 'string' ? new Date(isoOrDate) : isoOrDate;
