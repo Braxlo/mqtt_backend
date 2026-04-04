@@ -40,7 +40,7 @@ function addDaysToYmd(ymd: string, days: number): string {
 
 /**
  * Etiqueta = día calendario en que **empieza** el turno a las 08:00 (igual que el frontend).
- * Ventana: ese día 08:00 → día siguiente 07:59.
+ * Ventana (en informes): ese día 08:00 → día siguiente 08:00 (24 h; en datos: hasta 07:59:59 inclusive).
  */
 export function getDiaOperacionalKeyChile(d: Date): string {
   const base = getCalendarYmdChile(d);
@@ -48,6 +48,17 @@ export function getDiaOperacionalKeyChile(d: Date): string {
   const h = getHourChile(d);
   if (Number.isNaN(h)) return base;
   return h >= 8 ? base : addDaysToYmd(base, -1);
+}
+
+/** Misma convención que el frontend: 24 horas en orden de turno 08:00 … 08:00 del día siguiente. */
+export const HORAS_RELOJ_ORDEN_OPERATIVO: readonly number[] = [
+  8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7,
+];
+
+export function fechaCalendarioYmdParaHoraEnVentanaOperativa(diaKeyYmd: string, horaReloj: number): string {
+  if (horaReloj >= 8 && horaReloj <= 23) return diaKeyYmd;
+  if (horaReloj >= 0 && horaReloj <= 7) return addDaysToYmd(diaKeyYmd, 1);
+  return diaKeyYmd;
 }
 
 function parseYmd(ymd: string): { y: number; m: number; d: number } | null {
@@ -98,7 +109,7 @@ export function enumerarEtiquetasYmdInclusive(inicio: string, fin: string): stri
   return out;
 }
 
-/** Etiqueta = día de inicio 08:00; ventana hasta 07:59 del día siguiente. */
+/** Etiqueta = día de inicio 08:00; en texto: ventana 08:00 → 08:00 del día siguiente (24 h). */
 export function formatoVentanaOperativaCorta(diaKeyYmd: string): string {
   const next = addDaysToYmd(diaKeyYmd, 1);
   const fmt = (ymd: string) => {
@@ -106,7 +117,7 @@ export function formatoVentanaOperativaCorta(diaKeyYmd: string): string {
     if (!p) return ymd;
     return `${String(p.d).padStart(2, '0')}/${String(p.m).padStart(2, '0')}/${p.y}`;
   };
-  return `${fmt(diaKeyYmd)} 08:00 → ${fmt(next)} 07:59`;
+  return `${fmt(diaKeyYmd)} 08:00 → ${fmt(next)} 08:00`;
 }
 
 /**

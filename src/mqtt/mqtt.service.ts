@@ -13,10 +13,12 @@ import { Barrera } from '../entities/barrera.entity';
 import { APP_CONSTANTS } from '../common/constants/app.constants';
 import {
   enumerarEtiquetasYmdInclusive,
+  fechaCalendarioYmdParaHoraEnVentanaOperativa,
   formatoVentanaOperativaCorta,
   formatFechaHoraChile,
   getDiaOperacionalKeyChile,
   getHourChile,
+  HORAS_RELOJ_ORDEN_OPERATIVO,
   rangoOperacionalQueryUtc,
   registroEnVentanaOperacionalEtiqueta,
 } from '../common/chile-datetime';
@@ -1549,7 +1551,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       opsDiaMap.get(k)!.push(r);
     });
 
-    /** Solo muestras en [08:00 del día etiqueta, 07:59 del día siguiente] — coherente con promedio del día en frontend */
+    /** Solo muestras en la ventana del día operativo (08:00→08:00; en timestamps hasta 07:59:59 del día calendario siguiente) */
     for (const k of Array.from(opsDiaMap.keys())) {
       const bucket = opsDiaMap.get(k)!;
       opsDiaMap.set(
@@ -1577,7 +1579,6 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     const hourlyRows: Array<Record<string, any>> = [];
     diasOp.forEach((d) => {
       const regs = opsDiaMap.get(d) ?? [];
-      if (regs.length === 0) return;
       const hm = new Map<number, typeof registros>();
       regs.forEach((r) => {
         const h = getHourChile(new Date(r.timestamp));
@@ -1585,15 +1586,29 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         if (!hm.has(h)) hm.set(h, []);
         hm.get(h)!.push(r);
       });
-      Array.from(hm.entries())
-        .sort((a, b) => a[0] - b[0])
-        .forEach(([h, arr]) => {
-          const row: Record<string, any> = {
-            Fecha: d,
-            VentanaDia: formatoVentanaOperativaCorta(d),
-            Hora: `${String(h).padStart(2, '0')}:00–${String(h).padStart(2, '0')}:59 (${arr.length} muestras)`,
-            ID: entityName,
-          };
+      const ventanaDia = formatoVentanaOperativaCorta(d);
+      HORAS_RELOJ_ORDEN_OPERATIVO.forEach((h) => {
+        const arr = hm.get(h) ?? [];
+        const n = arr.length;
+        const cal = fechaCalendarioYmdParaHoraEnVentanaOperativa(d, h);
+        const row: Record<string, any> = {
+          Fecha: d,
+          VentanaDia: ventanaDia,
+          Hora: `${String(h).padStart(2, '0')}:00–${String(h).padStart(2, '0')}:59 (${n} muestra${n === 1 ? '' : 's'})`,
+          FechaCalendarioHora: cal,
+          ID: entityName,
+        };
+        if (n === 0) {
+          row.VSp = '';
+          row.CSp = '';
+          row.SWp = '';
+          row.VBp = '';
+          row.CBp = '';
+          row.BW = '';
+          row.LVp = '';
+          row.LCp = '';
+          row.LPp = '';
+        } else {
           row.VSp = fmt(mean(arr.map((r) => r.VS)));
           row.CSp = fmt(mean(arr.map((r) => r.CS)));
           row.SWp = fmt(mean(arr.map((r) => r.SW)));
@@ -1604,8 +1619,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           row.LVp = fmt(mean(arr.map((r) => r.LV)));
           row.LCp = fmt(mean(arr.map((r) => r.LC)));
           row.LPp = fmt(mean(arr.map((r) => r.LP)));
-          hourlyRows.push(row);
-        });
+        }
+        hourlyRows.push(row);
+      });
     });
     const hourlyRowsByDate = new Map<string, Array<Record<string, any>>>();
     hourlyRows.forEach((row) => {
@@ -1690,16 +1706,19 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         'Zona horaria: America/Santiago (Chile). Horas y fechas del informe en hora civil de Chile.',
       ],
       [
-        'Día operacional: la etiqueta YYYY-MM-DD es el día en que empieza el turno a las 08:00. Ventana = ese día 08:00 hasta el día siguiente 07:59. Ej.: etiqueta 2026-03-28 = 28/03 08:00 → 29/03 07:59. Filtro Desde 2026-03-28 Hasta 2026-03-29 = dos días operativos (28→29 y 29→30).',
+        'Día operacional: la etiqueta YYYY-MM-DD es el día en que empieza el turno a las 08:00. Ventana (como en planta) = 08:00 de ese día → 08:00 del día siguiente (24 h). Ej.: 2026-03-28 = 28/03 08:00 → 29/03 08:00. Filtro Desde 2026-03-28 Hasta 2026-03-29 = dos días operativos (28→29 y 29→30).',
+      ],
+      [
+        'Promedios y la misma ventana: el promedio del día, cada fila horaria (24), turno día (08:00–20:00 h) y turno noche (20:00–08:00 h) usan solo muestras dentro de esa ventana 08:00→08:00 del día etiqueta — no el día calendario 00:00–24:00. Los "promedios generales" del periodo (hojas Resumen/Datos) son la media de todas las muestras incluidas en el filtro de exportación.',
       ],
       [
         'BW (potencia batería): media de (VB×CB) en cada muestra del grupo (hora o día), no (media VB)×(media CB). Coherente con la pantalla Promedios.',
       ],
       [
-        'Promedio del día: muestras entre 08:00 del día de la etiqueta y 07:59 del día siguiente. Ej.: etiqueta 2026-03-28 = 28/03 08:00 → 29/03 07:59.',
+        'Promedio del día: muestras en la ventana 08:00 del día de la etiqueta → 08:00 del día siguiente. Ej.: 2026-03-28 = 28/03 08:00 → 29/03 08:00.',
       ],
       [
-        'Promedios horarios (LPp, VBp, etc.): media aritmética de todas las muestras MQTT en esa hora de reloj Chile (00–59 min).',
+        'Promedios horarios por día operativo: siempre 24 filas por etiqueta (orden de turno desde las 08:00 del día etiqueta hasta las 08:00 del día siguiente: franjas 08–23 del primer día y 0–7 del siguiente). LPp, VBp, etc.: media de las muestras en esa hora de reloj Chile (00–59 min); hora sin muestras = celdas vacías.',
       ],
       [
         'Tabla de registros (muestras puntuales): cada fila es una medición en un instante. Es normal que LP (u otras magnitudes) sea distinto del promedio horario: por ejemplo, LP entre 300–400 W en varias muestras puede dar un promedio horario de 450–600 W si hubo picos u otras muestras más altas en la misma hora.',
@@ -1777,7 +1796,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     );
     resumen.addRow([]);
     resumen.addRow([
-      'PROMEDIOS POR HORARIO - POR DÍA OPERACIONAL (etiqueta = día de inicio 08:00; ventana hasta 07:59 del día siguiente)',
+      'PROMEDIOS POR HORARIO - POR DÍA OPERACIONAL (etiqueta = día de inicio 08:00; ventana 08:00 → 08:00 del día siguiente)',
     ]);
     diasOp.forEach((fecha) => {
       const rows = hourlyRowsByDate.get(fecha) ?? [];
@@ -1981,7 +2000,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       ['Promedio LP general', fmt(promedioLP)],
       [],
       [
-        'PROMEDIOS DIARIOS: media de todas las muestras en la ventana (08:00 del día etiqueta → 07:59 del día siguiente). Ej.: etiqueta 2026-03-28 = 28/03 08:00 → 29/03 07:59.',
+        'PROMEDIOS DIARIOS: media de todas las muestras en la ventana (08:00 del día etiqueta → 08:00 del día siguiente). Ej.: 2026-03-28 = 28/03 08:00 → 29/03 08:00.',
       ],
       [
         'Etiqueta día',
@@ -2024,7 +2043,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     promHoras.addRows([
       ['ESTADISTICAS RESUMIDAS'],
       ['Total dias operacionales', diasOp.length],
-      ['Total de horas', hourlyRows.length],
+      ['Total de filas en hoja (24 por cada día operativo listado)', hourlyRows.length],
       ['Primera fecha', primera],
       ['Ultima fecha', ultima],
       ['Promedio general VS', fmt(promedioVS)],
