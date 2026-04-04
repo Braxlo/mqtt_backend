@@ -1564,7 +1564,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       options.fechaEtiquetaDesde && options.fechaEtiquetaHasta
         ? enumerarEtiquetasYmdInclusive(options.fechaEtiquetaDesde, options.fechaEtiquetaHasta)
         : Array.from(opsDiaMap.keys());
-    allEtiquetas.sort((a, b) => b.localeCompare(a));
+    allEtiquetas.sort((a, b) => a.localeCompare(b));
     const diasOp = allEtiquetas;
 
     const promedioVS = mean(registros.map((r) => r.VS));
@@ -1704,6 +1704,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     notas.addRows([
       [
         'Zona horaria: America/Santiago (Chile). Horas y fechas del informe en hora civil de Chile.',
+      ],
+      [
+        'Orden en las hojas: días operativos y filas horarias en orden cronológico creciente (el más antiguo arriba, el más reciente abajo).',
       ],
       [
         'Día operacional: la etiqueta YYYY-MM-DD es el día en que empieza el turno a las 08:00. Ventana (como en planta) = 08:00 de ese día → 08:00 del día siguiente (24 h). Ej.: 2026-03-28 = 28/03 08:00 → 29/03 08:00. Filtro Desde 2026-03-28 Hasta 2026-03-29 = dos días operativos (28→29 y 29→30).',
