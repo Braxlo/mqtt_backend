@@ -18,7 +18,7 @@ import {
   formatFechaHoraChile,
   getDiaOperacionalKeyChile,
   getHourChile,
-  HORAS_RELOJ_ORDEN_OPERATIVO,
+  HORAS_RELOJ_ORDEN_RECiente_PRIMERO,
   rangoOperacionalQueryUtc,
   registroEnVentanaOperacionalEtiqueta,
 } from '../common/chile-datetime';
@@ -1525,6 +1525,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         ),
       )
       .filter((r): r is NonNullable<typeof r> => !!r);
+    registros.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
     const mean = (vals: Array<number | undefined>) => {
       const nums = vals.filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
@@ -1542,6 +1543,12 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     };
     const fmt = (n: number | null | undefined) => (n == null ? '' : Number(n.toFixed(2)));
     const entityName = (options.entityName || 'DISPOSITIVO').toUpperCase();
+
+    const tsList = registros.map((r) => new Date(r.timestamp).getTime()).filter((t) => !Number.isNaN(t));
+    const fechaMasAntigua =
+      tsList.length > 0 ? formatFechaHoraChile(new Date(Math.min(...tsList))) : '';
+    const fechaMasReciente =
+      tsList.length > 0 ? formatFechaHoraChile(new Date(Math.max(...tsList))) : '';
 
     /** Día operacional (08:00→08:00), misma regla que el frontend */
     const opsDiaMap = new Map<string, typeof registros>();
@@ -1564,7 +1571,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       options.fechaEtiquetaDesde && options.fechaEtiquetaHasta
         ? enumerarEtiquetasYmdInclusive(options.fechaEtiquetaDesde, options.fechaEtiquetaHasta)
         : Array.from(opsDiaMap.keys());
-    allEtiquetas.sort((a, b) => a.localeCompare(b));
+    allEtiquetas.sort((a, b) => b.localeCompare(a));
     const diasOp = allEtiquetas;
 
     const promedioVS = mean(registros.map((r) => r.VS));
@@ -1587,7 +1594,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         hm.get(h)!.push(r);
       });
       const ventanaDia = formatoVentanaOperativaCorta(d);
-      HORAS_RELOJ_ORDEN_OPERATIVO.forEach((h) => {
+      HORAS_RELOJ_ORDEN_RECiente_PRIMERO.forEach((h) => {
         const arr = hm.get(h) ?? [];
         const n = arr.length;
         const cal = fechaCalendarioYmdParaHoraEnVentanaOperativa(d, h);
@@ -1706,9 +1713,6 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         'Zona horaria: America/Santiago (Chile). Horas y fechas del informe en hora civil de Chile.',
       ],
       [
-        'Orden en las hojas: días operativos y filas horarias en orden cronológico creciente (el más antiguo arriba, el más reciente abajo).',
-      ],
-      [
         'Día operacional: la etiqueta YYYY-MM-DD es el día en que empieza el turno a las 08:00. Ventana (como en planta) = 08:00 de ese día → 08:00 del día siguiente (24 h). Ej.: 2026-03-28 = 28/03 08:00 → 29/03 08:00. Filtro Desde 2026-03-28 Hasta 2026-03-29 = dos días operativos (28→29 y 29→30).',
       ],
       [
@@ -1721,13 +1725,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         'Promedio del día: muestras en la ventana 08:00 del día de la etiqueta → 08:00 del día siguiente. Ej.: 2026-03-28 = 28/03 08:00 → 29/03 08:00.',
       ],
       [
-        'Promedios horarios por día operativo: siempre 24 filas por etiqueta (orden de turno desde las 08:00 del día etiqueta hasta las 08:00 del día siguiente: franjas 08–23 del primer día y 0–7 del siguiente). LPp, VBp, etc.: media de las muestras en esa hora de reloj Chile (00–59 min); hora sin muestras = celdas vacías.',
+        'Promedios horarios por día operativo: 24 filas por etiqueta; en el archivo van de la hora más reciente del turno a la más antigua (07:00→…→08:00) para que lo actual quede arriba. LPp, VBp, etc.: media en esa hora de reloj Chile; hora sin muestras = celdas vacías.',
       ],
       [
         'Tabla de registros (muestras puntuales): cada fila es una medición en un instante. Es normal que LP (u otras magnitudes) sea distinto del promedio horario: por ejemplo, LP entre 300–400 W en varias muestras puede dar un promedio horario de 450–600 W si hubo picos u otras muestras más altas en la misma hora.',
       ],
       [
-        'Columna fecha/hora en "Datos originales": formato local del informe (es-CL). El instante UTC interno de la base se muestra de forma legible para evitar confusiones al abrir el archivo en otro huso horario.',
+        'Columna fecha/hora en "Datos originales": formato local del informe (es-CL). Filas ordenadas de la medición más reciente a la más antigua (lo actual arriba).',
       ],
     ]);
     notas.getColumn(1).width = 100;
@@ -1736,12 +1740,6 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     resumen.mergeCells('A1:H1');
     resumen.getCell('A1').value = 'INFORMACION GENERAL';
     Object.assign(resumen.getCell('A1'), titleStyle);
-    const primera = registros[0]
-      ? formatFechaHoraChile(new Date(registros[0].timestamp))
-      : '';
-    const ultima = registros.length
-      ? formatFechaHoraChile(new Date(registros[registros.length - 1].timestamp))
-      : '';
     resumen.addRows([
       ['Total de registros', registros.length],
       ...(options.fechaEtiquetaDesde && options.fechaEtiquetaHasta
@@ -1752,7 +1750,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
             ],
           ] as [string, string][])
         : []),
-      ['Rango de fechas', `${primera} - ${ultima}`],
+      ['Rango de fechas', `${fechaMasAntigua} → ${fechaMasReciente}`],
       ['Días operacionales analizados', diasOp.length],
       ['Promedio VS', fmt(promedioVS)],
       ['Promedio CS', fmt(promedioCS)],
@@ -1882,8 +1880,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     datos.addRows([
       ['ESTADISTICAS RESUMIDAS'],
       ['Total de registros', registros.length],
-      ['Primera fecha/hora', primera],
-      ['Última fecha/hora', ultima],
+      ['Más antigua (en el periodo)', fechaMasAntigua],
+      ['Más reciente (en el periodo)', fechaMasReciente],
       ['Promedio VS', fmt(promedioVS)],
       ['Promedio CS', fmt(promedioCS)],
       ['Promedio SW', fmt(promedioSW)],
@@ -2047,8 +2045,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       ['ESTADISTICAS RESUMIDAS'],
       ['Total dias operacionales', diasOp.length],
       ['Total de filas en hoja (24 por cada día operativo listado)', hourlyRows.length],
-      ['Primera fecha', primera],
-      ['Ultima fecha', ultima],
+      ['Más antigua (en el periodo)', fechaMasAntigua],
+      ['Más reciente (en el periodo)', fechaMasReciente],
       ['Promedio general VS', fmt(promedioVS)],
       ['Promedio general CS', fmt(promedioCS)],
       ['Promedio general SW', fmt(promedioSW)],
