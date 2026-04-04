@@ -108,3 +108,16 @@ export function formatoVentanaOperativaCorta(diaKeyYmd: string): string {
   };
   return `${fmt(prev)} 08:00 → ${fmt(diaKeyYmd)} 07:59`;
 }
+
+/**
+ * ¿La marca de tiempo cae en la ventana del día operacional `diaKeyYmd`?
+ * Misma regla que el promedio del día en pantalla: desde las 08:00 del día calendario anterior
+ * hasta las 07:59:59 del día de la etiqueta (cierre a las 08:00 del día siguiente).
+ */
+export function registroEnVentanaOperacionalEtiqueta(isoOrDate: string | Date, diaKeyYmd: string): boolean {
+  const d = typeof isoOrDate === 'string' ? new Date(isoOrDate) : isoOrDate;
+  const t = d.getTime();
+  if (Number.isNaN(t)) return false;
+  const { tMin, tMax } = rangoOperacionalQueryUtc(diaKeyYmd, diaKeyYmd);
+  return t >= tMin.getTime() && t <= tMax.getTime();
+}

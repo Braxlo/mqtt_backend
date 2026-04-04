@@ -18,6 +18,7 @@ import {
   getDiaOperacionalKeyChile,
   getHourChile,
   rangoOperacionalQueryUtc,
+  registroEnVentanaOperacionalEtiqueta,
 } from '../common/chile-datetime';
 import * as ExcelJS from 'exceljs';
 
@@ -1493,14 +1494,23 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     startDate?: Date;
     endDate?: Date;
     entityName?: string;
+    /** Etiquetas YYYY-MM-DD del filtro (día operacional). Con fechaEtiquetaHasta el backend filtra por ventana 08:00→08:00 Chile. */
+    fechaEtiquetaDesde?: string;
+    fechaEtiquetaHasta?: string;
   }): Promise<{ buffer: Buffer; filename: string }> {
     const topic = (options.topic || '').trim();
     if (!topic) throw new Error('Topic requerido');
 
     const qb = this.mqttMessageRepository.createQueryBuilder('message');
     qb.where('message.topic = :topic', { topic });
-    if (options.startDate) qb.andWhere('message.timestamp >= :startDate', { startDate: options.startDate });
-    if (options.endDate) qb.andWhere('message.timestamp <= :endDate', { endDate: options.endDate });
+    if (options.fechaEtiquetaDesde && options.fechaEtiquetaHasta) {
+      const { tMin, tMax } = rangoOperacionalQueryUtc(options.fechaEtiquetaDesde, options.fechaEtiquetaHasta);
+      qb.andWhere('message.timestamp >= :startDate', { startDate: tMin });
+      qb.andWhere('message.timestamp <= :endDate', { endDate: tMax });
+    } else {
+      if (options.startDate) qb.andWhere('message.timestamp >= :startDate', { startDate: options.startDate });
+      if (options.endDate) qb.andWhere('message.timestamp <= :endDate', { endDate: options.endDate });
+    }
     qb.orderBy('message.timestamp', 'ASC');
 
     const rawMessages = await qb.getMany();
@@ -1519,6 +1529,15 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       if (!nums.length) return null;
       return nums.reduce((a, b) => a + b, 0) / nums.length;
     };
+    const meanPotenciaBateriaW = (regs: typeof registros): number | null => {
+      const products: number[] = [];
+      for (const r of regs) {
+        if (r.VB != null && r.CB != null && !Number.isNaN(r.VB) && !Number.isNaN(r.CB)) {
+          products.push(r.VB * r.CB);
+        }
+      }
+      return mean(products);
+    };
     const fmt = (n: number | null | undefined) => (n == null ? '' : Number(n.toFixed(2)));
     const entityName = (options.entityName || 'DISPOSITIVO').toUpperCase();
 
@@ -1529,7 +1548,22 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       if (!opsDiaMap.has(k)) opsDiaMap.set(k, []);
       opsDiaMap.get(k)!.push(r);
     });
-    const diasOp = Array.from(opsDiaMap.keys()).sort();
+
+    /** Solo muestras dentro de [día anterior 08:00, día etiqueta 07:59] — coherente con promedio del día en frontend */
+    for (const k of Array.from(opsDiaMap.keys())) {
+      const bucket = opsDiaMap.get(k)!;
+      opsDiaMap.set(
+        k,
+        bucket.filter((r) => registroEnVentanaOperacionalEtiqueta(new Date(r.timestamp), k)),
+      );
+    }
+
+    const allEtiquetas =
+      options.fechaEtiquetaDesde && options.fechaEtiquetaHasta
+        ? enumerarEtiquetasYmdInclusive(options.fechaEtiquetaDesde, options.fechaEtiquetaHasta)
+        : Array.from(opsDiaMap.keys());
+    allEtiquetas.sort((a, b) => b.localeCompare(a));
+    const diasOp = allEtiquetas;
 
     const promedioVS = mean(registros.map((r) => r.VS));
     const promedioCS = mean(registros.map((r) => r.CS));
@@ -1542,7 +1576,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
     const hourlyRows: Array<Record<string, any>> = [];
     diasOp.forEach((d) => {
-      const regs = opsDiaMap.get(d)!;
+      const regs = opsDiaMap.get(d) ?? [];
+      if (regs.length === 0) return;
       const hm = new Map<number, typeof registros>();
       regs.forEach((r) => {
         const h = getHourChile(new Date(r.timestamp));
@@ -1555,7 +1590,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         .forEach(([h, arr]) => {
           const row: Record<string, any> = {
             Fecha: d,
-            Hora: `${d} · ${String(h).padStart(2, '0')}:00–${String(h).padStart(2, '0')}:59 (${arr.length} muestras)`,
+            VentanaDia: formatoVentanaOperativaCorta(d),
+            Hora: `${String(h).padStart(2, '0')}:00–${String(h).padStart(2, '0')}:59 (${arr.length} muestras)`,
             ID: entityName,
           };
           row.VSp = fmt(mean(arr.map((r) => r.VS)));
@@ -1563,7 +1599,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           row.SWp = fmt(mean(arr.map((r) => r.SW)));
           row.VBp = fmt(mean(arr.map((r) => r.VB)));
           row.CBp = fmt(mean(arr.map((r) => r.CB)));
-          row.BW = row.VBp !== '' && row.CBp !== '' ? Number((row.VBp * row.CBp).toFixed(2)) : '';
+          const bw = meanPotenciaBateriaW(arr);
+          row.BW = bw != null ? Number(bw.toFixed(2)) : '';
           row.LVp = fmt(mean(arr.map((r) => r.LV)));
           row.LCp = fmt(mean(arr.map((r) => r.LC)));
           row.LPp = fmt(mean(arr.map((r) => r.LP)));
@@ -1601,10 +1638,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           row.SWp = fmt(mean(arr.map((r) => r.SW)));
           row.VBp = fmt(mean(arr.map((r) => r.VB)));
           row.CBp = fmt(mean(arr.map((r) => r.CB)));
-          row.BW =
-            row.VBp !== '' && row.CBp !== ''
-              ? Number((row.VBp * row.CBp).toFixed(2))
-              : '';
+          const bwG = meanPotenciaBateriaW(arr);
+          row.BW = bwG != null ? Number(bwG.toFixed(2)) : '';
           row.LVp = fmt(mean(arr.map((r) => r.LV)));
           row.LCp = fmt(mean(arr.map((r) => r.LC)));
           row.LPp = fmt(mean(arr.map((r) => r.LP)));
@@ -1652,13 +1687,19 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     Object.assign(notas.getCell('A1'), titleStyle);
     notas.addRows([
       [
-        'Zona horaria fija del sistema operativo del servicio. Todas las horas y fechas del informe usan esa hora civil, no la hora del servidor donde se abre el archivo.',
+        'Zona horaria: America/Santiago (Chile). Horas y fechas del informe en hora civil de Chile.',
       ],
       [
-        'Día operacional: de 08:00 a 08:00 del día siguiente (etiqueta del día = fecha calendario del segundo tramo), alineado con la pantalla Registros → Promedios.',
+        'Día operacional (etiqueta YYYY-MM-DD): ventana desde las 08:00 del día calendario anterior hasta las 07:59:59 del día de la etiqueta. Ejemplo: etiqueta 2025-03-31 abarca de 30-03 08:00 a 31-03 07:59. La etiqueta 2025-04-01 abarca de 31-03 08:00 a 01-04 07:59. Si en el filtro eliges Desde 2025-03-31 Hasta 2025-04-01, exportas dos días operativos completos (no es un solo día aunque crucen dos fechas calendario).',
       ],
       [
-        'Promedios horarios (LPp, VBp, etc.): media aritmética de todas las muestras MQTT recibidas en esa hora (00–59 min) según el reloj del informe. No es el valor máximo ni mínimo de la hora.',
+        'BW (potencia batería): media de (VB×CB) en cada muestra del grupo (hora o día), no (media VB)×(media CB). Coherente con la pantalla Promedios.',
+      ],
+      [
+        'Promedio del día (hoja Promedios diarios): solo muestras entre 08:00 del día calendario anterior y 07:59 del día de la etiqueta. Ejemplo: etiqueta 01-04 incluye desde 31-03 08:00 hasta 01-04 07:59 (un solo día operacional, no el calendario 31 ni 01 por separado).',
+      ],
+      [
+        'Promedios horarios (LPp, VBp, etc.): media aritmética de todas las muestras MQTT en esa hora de reloj Chile (00–59 min).',
       ],
       [
         'Tabla de registros (muestras puntuales): cada fila es una medición en un instante. Es normal que LP (u otras magnitudes) sea distinto del promedio horario: por ejemplo, LP entre 300–400 W en varias muestras puede dar un promedio horario de 450–600 W si hubo picos u otras muestras más altas en la misma hora.',
@@ -1681,6 +1722,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       : '';
     resumen.addRows([
       ['Total de registros', registros.length],
+      ...(options.fechaEtiquetaDesde && options.fechaEtiquetaHasta
+        ? ([
+            [
+              'Filtro exportación (etiquetas día operacional)',
+              `${options.fechaEtiquetaDesde} → ${options.fechaEtiquetaHasta} (${diasOp.length} día(s) en el archivo)`,
+            ],
+          ] as [string, string][])
+        : []),
       ['Rango de fechas', `${primera} - ${ultima}`],
       ['Días operacionales analizados', diasOp.length],
       ['Promedio VS', fmt(promedioVS)],
@@ -1727,13 +1776,79 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       ]),
     );
     resumen.addRow([]);
-    resumen.addRow(['PROMEDIOS POR HORARIO - POR DIAS']);
-    Array.from(hourlyRowsByDate.entries()).forEach(([fecha, rows]) => {
-      const diaTitle = resumen.addRow([`DIA: ${fecha}`]);
+    resumen.addRow([
+      'PROMEDIOS POR HORARIO - POR DÍA OPERACIONAL (cada bloque = una etiqueta; ventana 08:00 día anterior → 07:59 día etiqueta)',
+    ]);
+    diasOp.forEach((fecha) => {
+      const rows = hourlyRowsByDate.get(fecha) ?? [];
+      const ventana = formatoVentanaOperativaCorta(fecha);
+      const diaTitle = resumen.addRow([`DÍA OPERACIONAL ${fecha}  |  ${ventana}`]);
       resumen.mergeCells(`A${diaTitle.number}:L${diaTitle.number}`);
-      resumen.addRow(['Fecha', 'Hora', 'ID', 'VSp', 'CSp', 'SWp', 'VBp', 'CBp', 'BW', 'LVp', 'LCp', 'LPp']);
+      if (rows.length === 0) {
+        resumen.addRow([
+          'Etiqueta',
+          'Ventana',
+          'Hora',
+          'ID',
+          'VSp',
+          'CSp',
+          'SWp',
+          'VBp',
+          'CBp',
+          'BW',
+          'LVp',
+          'LCp',
+          'LPp',
+        ]);
+        resumen.addRow([
+          fecha,
+          ventana,
+          'Sin registros en este día operativo',
+          entityName,
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+        ]);
+        resumen.addRow([]);
+        return;
+      }
+      resumen.addRow([
+        'Etiqueta día',
+        'Ventana',
+        'Hora',
+        'ID',
+        'VSp',
+        'CSp',
+        'SWp',
+        'VBp',
+        'CBp',
+        'BW',
+        'LVp',
+        'LCp',
+        'LPp',
+      ]);
       rows.forEach((r) => {
-        resumen.addRow([r.Fecha, r.Hora, r.ID, r.VSp, r.CSp, r.SWp, r.VBp, r.CBp, r.BW, r.LVp, r.LCp, r.LPp]);
+        resumen.addRow([
+          r.Fecha,
+          r.VentanaDia ?? ventana,
+          r.Hora,
+          r.ID,
+          r.VSp,
+          r.CSp,
+          r.SWp,
+          r.VBp,
+          r.CBp,
+          r.BW,
+          r.LVp,
+          r.LCp,
+          r.LPp,
+        ]);
       });
       resumen.addRow([]);
     });
@@ -1803,27 +1918,50 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       );
 
     const promDiarios = wb.addWorksheet('Promedios diarios');
-    promDiarios.mergeCells('A1:J1');
-    promDiarios.getCell('A1').value = 'PROMEDIOS DIARIOS - RESUMEN POR DIA';
+    promDiarios.mergeCells('A1:M1');
+    promDiarios.getCell('A1').value =
+      'PROMEDIOS DIARIOS - UNA FILA POR ETIQUETA (08:00→08:00); INCLUYE DÍAS SIN REGISTROS';
     Object.assign(promDiarios.getCell('A1'), titleStyle);
     const diarios = diasOp.map((d) => {
-      const arr = opsDiaMap.get(d)!;
+      const arr = opsDiaMap.get(d) ?? [];
+      const ventana = formatoVentanaOperativaCorta(d);
+      if (arr.length === 0) {
+        return {
+          Fecha: d,
+          Ventana: ventana,
+          Estado: 'Sin registros',
+          Registros: 0,
+          VSP: '',
+          CSP: '',
+          SWP: '',
+          VBP: '',
+          CBP: '',
+          BWP: '',
+          LVP: '',
+          LCP: '',
+          LPP: '',
+        };
+      }
       const VS = mean(arr.map((r) => r.VS));
       const CS = mean(arr.map((r) => r.CS));
       const SW = mean(arr.map((r) => r.SW));
       const VB = mean(arr.map((r) => r.VB));
       const CB = mean(arr.map((r) => r.CB));
+      const BW = meanPotenciaBateriaW(arr);
       const LV = mean(arr.map((r) => r.LV));
       const LC = mean(arr.map((r) => r.LC));
       const LP = mean(arr.map((r) => r.LP));
       return {
         Fecha: d,
+        Ventana: ventana,
+        Estado: 'OK',
         Registros: arr.length,
         VSP: fmt(VS),
         CSP: fmt(CS),
         SWP: fmt(SW),
         VBP: fmt(VB),
         CBP: fmt(CB),
+        BWP: BW != null ? fmt(BW) : '',
         LVP: fmt(LV),
         LCP: fmt(LC),
         LPP: fmt(LP),
@@ -1832,6 +1970,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     promDiarios.addRows([
       ['ESTADISTICAS RESUMIDAS'],
       ['Total de registros procesados', registros.length],
+      ['Etiquetas de día en el informe', diasOp.length],
       ['Promedio VS general', fmt(promedioVS)],
       ['Promedio CS general', fmt(promedioCS)],
       ['Promedio SW general', fmt(promedioSW)],
@@ -1841,15 +1980,20 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       ['Promedio LC general', fmt(promedioLC)],
       ['Promedio LP general', fmt(promedioLP)],
       [],
-      ['PROMEDIOS DIARIOS'],
       [
-        'Fecha',
+        'PROMEDIOS DIARIOS: media de todas las muestras en la ventana (día anterior 08:00 → día etiqueta 07:59). Ej.: etiqueta 01-04 = 31-03 08:00 a 01-04 07:59.',
+      ],
+      [
+        'Etiqueta día',
+        'Ventana operativa',
+        'Estado',
         'Registros',
         'VSp',
         'CSp',
         'SWp',
         'VBp',
         'CBp',
+        'BW',
         'LVp',
         'LCp',
         'LPp',
@@ -1858,12 +2002,15 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     diarios.forEach((r) =>
       promDiarios.addRow([
         r.Fecha,
+        r.Ventana,
+        r.Estado,
         r.Registros,
         r.VSP,
         r.CSP,
         r.SWP,
         r.VBP,
         r.CBP,
+        r.BWP,
         r.LVP,
         r.LCP,
         r.LPP,
@@ -1890,33 +2037,99 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       ['Promedio general LP', fmt(promedioLP)],
       [],
     ]);
-    Array.from(hourlyRowsByDate.entries()).forEach(([fecha, rows]) => {
-      const diaTitle = promHoras.addRow([`DIA: ${fecha}`]);
+    diasOp.forEach((fecha) => {
+      const rows = hourlyRowsByDate.get(fecha) ?? [];
+      const ventana = formatoVentanaOperativaCorta(fecha);
+      const diaTitle = promHoras.addRow([`DÍA OPERACIONAL ${fecha}  |  ${ventana}`]);
       promHoras.mergeCells(`A${diaTitle.number}:L${diaTitle.number}`);
-      promHoras.addRow(['Fecha', 'Hora', 'ID', 'VSp', 'CSp', 'SWp', 'VBp', 'CBp', 'BW', 'LVp', 'LCp', 'LPp']);
+      if (rows.length === 0) {
+        promHoras.addRow([
+          'Etiqueta',
+          'Ventana',
+          'Hora',
+          'ID',
+          'VSp',
+          'CSp',
+          'SWp',
+          'VBp',
+          'CBp',
+          'BW',
+          'LVp',
+          'LCp',
+          'LPp',
+        ]);
+        promHoras.addRow([
+          fecha,
+          ventana,
+          'Sin registros en este día operativo',
+          entityName,
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+        ]);
+        promHoras.addRow([]);
+        return;
+      }
+      promHoras.addRow([
+        'Etiqueta día',
+        'Ventana',
+        'Hora',
+        'ID',
+        'VSp',
+        'CSp',
+        'SWp',
+        'VBp',
+        'CBp',
+        'BW',
+        'LVp',
+        'LCp',
+        'LPp',
+      ]);
       rows.forEach((r) => {
-        promHoras.addRow([r.Fecha, r.Hora, r.ID, r.VSp, r.CSp, r.SWp, r.VBp, r.CBp, r.BW, r.LVp, r.LCp, r.LPp]);
+        promHoras.addRow([
+          r.Fecha,
+          r.VentanaDia ?? ventana,
+          r.Hora,
+          r.ID,
+          r.VSp,
+          r.CSp,
+          r.SWp,
+          r.VBp,
+          r.CBp,
+          r.BW,
+          r.LVp,
+          r.LCp,
+          r.LPp,
+        ]);
       });
       promHoras.addRow([]);
     });
 
     const resumenes = wb.addWorksheet('Resumenes diarios');
-    resumenes.mergeCells('A1:K1');
+    resumenes.mergeCells('A1:N1');
     resumenes.getCell('A1').value = 'RESUMENES DIARIOS - ANALISIS COMPLETO POR DIA';
     Object.assign(resumenes.getCell('A1'), titleStyle);
     resumenes.addRows([
       ['ESTADISTICAS RESUMIDAS'],
-      ['Dias operacionales', diasOp.length],
+      ['Dias operacionales (etiquetas)', diasOp.length],
       ['Registros', registros.length],
       [],
       [
-        'Fecha',
+        'Etiqueta día',
+        'Ventana',
+        'Estado',
         'Registros',
         'VSp',
         'CSp',
         'SWp',
         'VBp',
         'CBp',
+        'BW',
         'LVp',
         'LCp',
         'LPp',
@@ -1929,12 +2142,15 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       ).length;
       resumenes.addRow([
         d.Fecha,
+        d.Ventana,
+        d.Estado,
         d.Registros,
         d.VSP,
         d.CSP,
         d.SWP,
         d.VBP,
         d.CBP,
+        d.BWP,
         d.LVP,
         d.LCP,
         d.LPP,
@@ -1966,7 +2182,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         v.includes('ANOMALIAS DETECTADAS') ||
         v.includes('RESUMENES DIARIOS') ||
         v.includes('MEDIA SEVERIDAD') ||
-        v.includes('DIA:'));
+        v.includes('DIA:') ||
+        v.includes('DÍA OPERACIONAL'));
 
     wb.creator = 'Centinela';
     wb.lastModifiedBy = 'Centinela Backend';
@@ -2089,9 +2306,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       .replace(/[^a-z0-9_-]+/gi, '_')
       .replace(/^_+|_+$/g, '');
     const rangePart =
-      options.startDate && options.endDate
-        ? `${options.startDate.toISOString().slice(0, 10)}_${options.endDate.toISOString().slice(0, 10)}`
-        : 'sin_rango';
+      options.fechaEtiquetaDesde && options.fechaEtiquetaHasta
+        ? `${options.fechaEtiquetaDesde}_${options.fechaEtiquetaHasta}`
+        : options.startDate && options.endDate
+          ? `${options.startDate.toISOString().slice(0, 10)}_${options.endDate.toISOString().slice(0, 10)}`
+          : 'sin_rango';
     return {
       buffer,
       filename: `analisis_promedios_${safeName || 'dispositivo'}_${rangePart}_${stamp}.xlsx`,
