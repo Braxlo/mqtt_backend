@@ -28,7 +28,11 @@ export function getHourChile(d: Date): number {
     hour12: false,
   }).formatToParts(d);
   const h = parts.find((p) => p.type === 'hour')?.value;
-  return h != null ? parseInt(h, 10) : NaN;
+  if (h == null) return NaN;
+  const n = parseInt(h, 10);
+  if (Number.isNaN(n)) return NaN;
+  /** Algunos motores devuelven 24 en medianoche; normalizar a 0. */
+  return n === 24 ? 0 : n;
 }
 
 function addDaysToYmd(ymd: string, days: number): string {
@@ -72,13 +76,60 @@ function parseYmd(ymd: string): { y: number; m: number; d: number } | null {
   return { y, m, d };
 }
 
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * Instante UTC que corresponde a esta hora de pared en Chile (respeta DST −3/−4 de IANA).
+ * No usar offset fijo: en abril (invierno austral) Chile suele estar en −4 y un −3 fijo descuadra ventanas y horas en Excel.
+ */
+export function chileWallTimeToUtcDate(
+  y: number,
+  m: number,
+  d: number,
+  hour: number,
+  minute: number,
+  second: number,
+): Date {
+  const base = `${y}-${pad2(m)}-${pad2(d)}T${pad2(hour)}:${pad2(minute)}:${pad2(second)}`;
+  for (const off of ['-04:00', '-03:00'] as const) {
+    const candidate = new Date(base + off);
+    if (Number.isNaN(candidate.getTime())) continue;
+    if (chileWallTimeMatches(candidate, y, m, d, hour, minute, second)) {
+      return candidate;
+    }
+  }
+  return new Date(base + '-03:00');
+}
+
+function chileWallTimeMatches(
+  dt: Date,
+  y: number,
+  mo: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+): boolean {
+  const ymd = getCalendarYmdChile(dt);
+  const [yy, mm, dd] = ymd.split('-').map((x) => parseInt(x, 10));
+  if (yy !== y || mm !== mo || dd !== day) return false;
+  const h = getHourChile(dt);
+  if (h !== hour) return false;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ_CHILE,
+    minute: 'numeric',
+    second: 'numeric',
+  }).formatToParts(dt);
+  const mi = parseInt(parts.find((p) => p.type === 'minute')?.value ?? 'NaN', 10);
+  const s = parseInt(parts.find((p) => p.type === 'second')?.value ?? 'NaN', 10);
+  return mi === minute && s === second;
+}
+
 /** 08:00 Chile del día de la etiqueta (inicio del día operacional). */
 export function operacionalDiaInicioUtcDate(ymd: string): Date {
   const p = parseYmd(ymd);
   if (!p) return new Date(NaN);
-  return new Date(
-    `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}T08:00:00-03:00`,
-  );
+  return chileWallTimeToUtcDate(p.y, p.m, p.d, 8, 0, 0);
 }
 
 /** 07:59:59 Chile del día calendario siguiente (fin inclusivo del día operacional etiquetado `ymd`). */
@@ -86,9 +137,7 @@ export function operacionalDiaFinInclusiveUtcDate(ymd: string): Date {
   const next = addDaysToYmd(ymd, 1);
   const p = parseYmd(next);
   if (!p) return new Date(NaN);
-  return new Date(
-    `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}T07:59:59-03:00`,
-  );
+  return chileWallTimeToUtcDate(p.y, p.m, p.d, 7, 59, 59);
 }
 
 /** Rango de timestamps para filtrar por etiquetas de día operacional Desde…Hasta (inclusive). */

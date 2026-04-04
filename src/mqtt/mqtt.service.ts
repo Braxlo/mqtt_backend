@@ -1710,7 +1710,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     Object.assign(notas.getCell('A1'), titleStyle);
     notas.addRows([
       [
-        'Zona horaria: America/Santiago (Chile). Horas y fechas del informe en hora civil de Chile.',
+        'Zona horaria: America/Santiago (Chile). Ventanas 08:00→08:00 y franjas horarias respetan DST (UTC−3 / UTC−4 según fecha), alineado con el conteo de muestras por hora.',
       ],
       [
         'Día operacional: la etiqueta YYYY-MM-DD es el día en que empieza el turno a las 08:00. Ventana (como en planta) = 08:00 de ese día → 08:00 del día siguiente (24 h). Ej.: 2026-03-28 = 28/03 08:00 → 29/03 08:00. Filtro Desde 2026-03-28 Hasta 2026-03-29 = dos días operativos (28→29 y 29→30).',
