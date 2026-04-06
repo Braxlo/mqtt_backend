@@ -28,8 +28,9 @@ DB_LOGGING=false
 JWT_SECRET=tu_secret_key_muy_segura_y_larga
 JWT_EXPIRES_IN=24h
 
-# CORS - Ajustar según tu frontend
-CORS_ORIGIN=http://2.136.50.216:3007
+# CORS: * = acepta cualquier origen (útil al cambiar de servidor/IP).
+# O lista separada por comas, sin barra final: http://IP:3007,https://dominio.com
+CORS_ORIGIN=*
 
 # Puerto y Host
 PORT=3006
@@ -125,8 +126,9 @@ Si el frontend está en el mismo servidor o en otro, asegúrate de:
 - Revisa las credenciales
 
 #### Error de CORS
-- Verifica que `CORS_ORIGIN` incluya la URL exacta del frontend
-- Si el frontend está en otro puerto, inclúyelo en la variable
+- Pon `CORS_ORIGIN=*` o incluye la URL del frontend **sin barra final** (`http://IP:3007`, no `http://IP:3007/`).
+- Puedes listar varios orígenes separados por comas.
+- Si ves `OPTIONS //api/...` en logs, revisa que `NEXT_PUBLIC_API_URL` no termine en `/` (evita doble barra en el cliente).
 
 ### Actualización
 

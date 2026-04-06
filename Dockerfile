@@ -44,7 +44,7 @@ USER nestjs
 # Exponer el puerto
 EXPOSE 3006
 
-# Variables de entorno por defecto
+# CORS, DB, JWT, etc. se configuran al ejecutar el contenedor (env / compose), no aquí.
 ENV NODE_ENV=production
 ENV PORT=3006
 ENV HOST=0.0.0.0
