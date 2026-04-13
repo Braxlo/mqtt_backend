@@ -48,8 +48,73 @@ export class LuminariasService implements OnModuleInit {
       } else {
         this.logger.debug('Columna orden ya existe en luminarias.');
       }
+
+      const controlHeaderColumn = await this.luminariaRepository.query(`
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'luminarias'
+          AND column_name = 'controlHeader'
+      `);
+      if (controlHeaderColumn.length === 0) {
+        this.logger.log('Columna controlHeader no existe en luminarias. Creando columna...');
+        await this.luminariaRepository.query(`
+          ALTER TABLE luminarias
+          ADD COLUMN "controlHeader" VARCHAR(10) DEFAULT 'HRTW'
+        `);
+      }
+
+      const mostrarTarjetaColumn = await this.luminariaRepository.query(`
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'luminarias'
+          AND column_name = 'mostrarTarjetaControl'
+      `);
+      if (mostrarTarjetaColumn.length === 0) {
+        this.logger.log('Columna mostrarTarjetaControl no existe en luminarias. Creando columna...');
+        await this.luminariaRepository.query(`
+          ALTER TABLE luminarias
+          ADD COLUMN "mostrarTarjetaControl" BOOLEAN DEFAULT FALSE
+        `);
+      }
+
+      const extraProgramColumns: { name: string; ddl: string }[] = [
+        {
+          name: 'controlHoraInicio',
+          ddl: `ALTER TABLE luminarias ADD COLUMN "controlHoraInicio" VARCHAR(5) NULL`,
+        },
+        {
+          name: 'controlHoraFin',
+          ddl: `ALTER TABLE luminarias ADD COLUMN "controlHoraFin" VARCHAR(5) NULL`,
+        },
+        {
+          name: 'controlUltimaTrama',
+          ddl: `ALTER TABLE luminarias ADD COLUMN "controlUltimaTrama" VARCHAR(32) NULL`,
+        },
+        {
+          name: 'controlUltimaEnviadaAt',
+          ddl: `ALTER TABLE luminarias ADD COLUMN "controlUltimaEnviadaAt" TIMESTAMPTZ NULL`,
+        },
+      ];
+      for (const col of extraProgramColumns) {
+        const colCheck = await this.luminariaRepository.query(
+          `
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'luminarias'
+            AND column_name = $1
+        `,
+          [col.name],
+        );
+        if (colCheck.length === 0) {
+          this.logger.log(`Columna ${col.name} no existe en luminarias. Creando columna...`);
+          await this.luminariaRepository.query(col.ddl);
+        }
+      }
     } catch (error) {
-      this.logger.error(`Error asegurando columna orden en luminarias: ${error.message}`);
+      this.logger.error(`Error asegurando columnas de luminarias: ${error.message}`);
     }
   }
 
@@ -68,6 +133,16 @@ export class LuminariasService implements OnModuleInit {
       tipoDispositivo: l.tipoDispositivo || 'PLC_S',
       tipoBateria: l.tipoBateria || '48V',
       categoria: l.categoria ?? 'sin_asignar',
+      controlHeader: l.controlHeader || 'HRTW',
+      mostrarTarjetaControl: l.mostrarTarjetaControl ?? false,
+      controlHoraInicio: l.controlHoraInicio ?? null,
+      controlHoraFin: l.controlHoraFin ?? null,
+      controlUltimaTrama: l.controlUltimaTrama ?? null,
+      controlUltimaEnviadaAt: l.controlUltimaEnviadaAt
+        ? (l.controlUltimaEnviadaAt instanceof Date
+            ? l.controlUltimaEnviadaAt.toISOString()
+            : String(l.controlUltimaEnviadaAt))
+        : null,
     }));
   }
 
@@ -86,6 +161,16 @@ export class LuminariasService implements OnModuleInit {
       tipoDispositivo: luminaria.tipoDispositivo || 'PLC_S',
       tipoBateria: luminaria.tipoBateria || '48V',
       categoria: luminaria.categoria ?? 'sin_asignar',
+      controlHeader: luminaria.controlHeader || 'HRTW',
+      mostrarTarjetaControl: luminaria.mostrarTarjetaControl ?? false,
+      controlHoraInicio: luminaria.controlHoraInicio ?? null,
+      controlHoraFin: luminaria.controlHoraFin ?? null,
+      controlUltimaTrama: luminaria.controlUltimaTrama ?? null,
+      controlUltimaEnviadaAt: luminaria.controlUltimaEnviadaAt
+        ? (luminaria.controlUltimaEnviadaAt instanceof Date
+            ? luminaria.controlUltimaEnviadaAt.toISOString()
+            : String(luminaria.controlUltimaEnviadaAt))
+        : null,
     };
   }
 
@@ -98,6 +183,8 @@ export class LuminariasService implements OnModuleInit {
       tipoDispositivo: createLuminariaDto.tipoDispositivo || 'PLC_S',
       tipoBateria: createLuminariaDto.tipoBateria || '48V',
       orden: createLuminariaDto.orden ?? 0,
+      controlHeader: createLuminariaDto.controlHeader || 'HRTW',
+      mostrarTarjetaControl: createLuminariaDto.mostrarTarjetaControl ?? false,
       ...createLuminariaDto,
       categoria: 'luminarias', // Siempre se muestra en la página de Luminarias
     });
@@ -111,6 +198,16 @@ export class LuminariasService implements OnModuleInit {
       tipoDispositivo: savedLuminaria.tipoDispositivo || 'PLC_S',
       tipoBateria: savedLuminaria.tipoBateria || '48V',
       categoria: savedLuminaria.categoria ?? 'sin_asignar',
+      controlHeader: savedLuminaria.controlHeader || 'HRTW',
+      mostrarTarjetaControl: savedLuminaria.mostrarTarjetaControl ?? false,
+      controlHoraInicio: savedLuminaria.controlHoraInicio ?? null,
+      controlHoraFin: savedLuminaria.controlHoraFin ?? null,
+      controlUltimaTrama: savedLuminaria.controlUltimaTrama ?? null,
+      controlUltimaEnviadaAt: savedLuminaria.controlUltimaEnviadaAt
+        ? (savedLuminaria.controlUltimaEnviadaAt instanceof Date
+            ? savedLuminaria.controlUltimaEnviadaAt.toISOString()
+            : String(savedLuminaria.controlUltimaEnviadaAt))
+        : null,
     };
   }
 
@@ -144,6 +241,16 @@ export class LuminariasService implements OnModuleInit {
       tipoDispositivo: updatedLuminaria.tipoDispositivo || 'PLC_S',
       tipoBateria: updatedLuminaria.tipoBateria || '48V',
       categoria: updatedLuminaria.categoria ?? 'sin_asignar',
+      controlHeader: updatedLuminaria.controlHeader || 'HRTW',
+      mostrarTarjetaControl: updatedLuminaria.mostrarTarjetaControl ?? false,
+      controlHoraInicio: updatedLuminaria.controlHoraInicio ?? null,
+      controlHoraFin: updatedLuminaria.controlHoraFin ?? null,
+      controlUltimaTrama: updatedLuminaria.controlUltimaTrama ?? null,
+      controlUltimaEnviadaAt: updatedLuminaria.controlUltimaEnviadaAt
+        ? (updatedLuminaria.controlUltimaEnviadaAt instanceof Date
+            ? updatedLuminaria.controlUltimaEnviadaAt.toISOString()
+            : String(updatedLuminaria.controlUltimaEnviadaAt))
+        : null,
     };
   }
 

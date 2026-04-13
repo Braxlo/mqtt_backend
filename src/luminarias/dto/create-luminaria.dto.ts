@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, MaxLength, MinLength, IsOptional, IsIn, IsInt, Min } from 'class-validator';
+import { IsString, IsNotEmpty, MaxLength, MinLength, IsOptional, IsIn, IsInt, Min, IsBoolean, Matches, IsDateString } from 'class-validator';
 
 /**
  * DTO para crear una nueva luminaria
@@ -35,5 +35,36 @@ export class CreateLuminariaDto {
   @IsInt({ message: 'El orden debe ser un número entero' })
   @Min(0, { message: 'El orden no puede ser negativo' })
   orden?: number;
+
+  @IsOptional()
+  @IsString({ message: 'La cabecera de control debe ser una cadena de texto' })
+  @MinLength(1, { message: 'La cabecera de control no puede estar vacía' })
+  @MaxLength(10, { message: 'La cabecera de control no puede exceder 10 caracteres' })
+  controlHeader?: string;
+
+  @IsOptional()
+  @IsBoolean({ message: 'La visibilidad de la tarjeta de control debe ser verdadero o falso' })
+  mostrarTarjetaControl?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5)
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'controlHoraInicio debe ser HH:MM (24h)' })
+  controlHoraInicio?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5)
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'controlHoraFin debe ser HH:MM (24h)' })
+  controlHoraFin?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  controlUltimaTrama?: string;
+
+  @IsOptional()
+  @IsDateString()
+  controlUltimaEnviadaAt?: string;
 }
 
