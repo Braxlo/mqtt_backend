@@ -35,6 +35,10 @@ export class CreateBarreraDto {
   @IsOptional()
   comandoEnclavarArriba?: string;
 
+  @IsString({ message: 'El comando de enclavar arriba OFF debe ser una cadena de texto' })
+  @IsOptional()
+  comandoEnclavarArribaOff?: string;
+
   @IsString({ message: 'El comando de estado debe ser una cadena de texto' })
   @IsOptional()
   @MinLength(1, { message: 'El comando de estado no puede estar vacío' })

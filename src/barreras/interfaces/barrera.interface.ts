@@ -8,7 +8,8 @@ export interface ConfiguracionBarrera {
   urlCamara: string; // URL de la cámara para visualización
   comandoAbrir: string; // Comando/trama para subir/abrir la barrera
   comandoCerrar: string; // Comando/trama para bajar/cerrar la barrera
-  comandoEnclavarArriba?: string; // Comando/trama para enclavar en posición arriba
+  comandoEnclavarArriba?: string; // Comando/trama para enclavar arriba en ON
+  comandoEnclavarArribaOff?: string; // Comando/trama para enclavar arriba en OFF
   comandoEstado?: string; // Comando/trama para consultar el estado de la barrera
   funcion?: 'entrada' | 'salida' | 'ambas'; // Función de la barrera: entrada, salida o ambas
   orden?: number; // Orden de visualización

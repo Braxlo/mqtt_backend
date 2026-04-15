@@ -35,6 +35,9 @@ export class Barrera {
   @Column({ type: 'text', name: 'comando_enclavar_arriba', nullable: true })
   comandoEnclavarArriba?: string;
 
+  @Column({ type: 'text', name: 'comando_enclavar_arriba_off', nullable: true })
+  comandoEnclavarArribaOff?: string;
+
   @Column({ type: 'text', name: 'comando_estado', nullable: true })
   comandoEstado?: string;
 

@@ -64,6 +64,22 @@ export class BarrerasService implements OnModuleInit {
         `);
         this.logger.log('Columna comando_enclavar_arriba creada en barreras.');
       }
+
+      const enclavarOff = await this.barreraRepository.query(`
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'barreras'
+          AND column_name = 'comando_enclavar_arriba_off'
+      `);
+      if (enclavarOff.length === 0) {
+        this.logger.log('Columna comando_enclavar_arriba_off no existe en barreras. Creando columna...');
+        await this.barreraRepository.query(`
+          ALTER TABLE barreras
+          ADD COLUMN comando_enclavar_arriba_off TEXT NULL
+        `);
+        this.logger.log('Columna comando_enclavar_arriba_off creada en barreras.');
+      }
     } catch (error) {
       this.logger.error(`Error asegurando columna tipoDispositivo en barreras: ${error.message}`);
     }
@@ -84,6 +100,7 @@ export class BarrerasService implements OnModuleInit {
       comandoAbrir: b.comandoAbrir,
       comandoCerrar: b.comandoCerrar,
       comandoEnclavarArriba: b.comandoEnclavarArriba,
+      comandoEnclavarArribaOff: b.comandoEnclavarArribaOff,
       comandoEstado: b.comandoEstado,
       funcion: b.funcion,
       orden: b.orden,
@@ -109,6 +126,7 @@ export class BarrerasService implements OnModuleInit {
       comandoAbrir: barrera.comandoAbrir,
       comandoCerrar: barrera.comandoCerrar,
       comandoEnclavarArriba: barrera.comandoEnclavarArriba,
+      comandoEnclavarArribaOff: barrera.comandoEnclavarArribaOff,
       comandoEstado: barrera.comandoEstado,
       funcion: barrera.funcion,
       orden: barrera.orden,
@@ -138,6 +156,7 @@ export class BarrerasService implements OnModuleInit {
       comandoAbrir: savedBarrera.comandoAbrir,
       comandoCerrar: savedBarrera.comandoCerrar,
       comandoEnclavarArriba: savedBarrera.comandoEnclavarArriba,
+      comandoEnclavarArribaOff: savedBarrera.comandoEnclavarArribaOff,
       comandoEstado: savedBarrera.comandoEstado,
       funcion: savedBarrera.funcion,
       orden: savedBarrera.orden,
@@ -171,6 +190,7 @@ export class BarrerasService implements OnModuleInit {
       comandoAbrir: updatedBarrera.comandoAbrir,
       comandoCerrar: updatedBarrera.comandoCerrar,
       comandoEnclavarArriba: updatedBarrera.comandoEnclavarArriba,
+      comandoEnclavarArribaOff: updatedBarrera.comandoEnclavarArribaOff,
       comandoEstado: updatedBarrera.comandoEstado,
       funcion: updatedBarrera.funcion,
       orden: updatedBarrera.orden,
