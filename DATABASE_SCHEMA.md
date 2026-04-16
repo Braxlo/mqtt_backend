@@ -64,7 +64,15 @@ Este documento describe todas las tablas que se crean automáticamente en la bas
   - `url_camara` (text): URL de la cámara para visualización
   - `comando_abrir` (text): Comando/trama para abrir la barrera
   - `comando_cerrar` (text): Comando/trama para cerrar la barrera
+  - `comando_enclavar_arriba` (text, nullable): Comando/trama para enclavar arriba ON
+  - `comando_enclavar_arriba_off` (text, nullable): Comando/trama para enclavar arriba OFF
   - `comando_estado` (text, nullable): Comando/trama para consultar el estado de la barrera
+  - `funcion` (varchar 20, nullable): Función de barrera (`entrada`, `salida`, `ambas`)
+  - `orden` (integer, default 0): Orden de visualización en dashboard
+  - `tipoDispositivo` (varchar 10, default `PLC_S`): Tipo de dispositivo de entrada (`RPI`, `PLC_S`, `PLC_N`, `DWORD`)
+  - `tipoBateria` (varchar 5, default `48V`): Tipo de batería (`24V` o `48V`)
+  - `categoria` (varchar 50, nullable): Categoría de visualización
+  - `area` (varchar 100, nullable): Área para agrupación visual (Otras Barreras)
   - `created_at` (timestamp): Fecha de creación
   - `updated_at` (timestamp): Fecha de última actualización
 
