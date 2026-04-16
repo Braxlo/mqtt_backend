@@ -64,5 +64,10 @@ export class CreateBarreraDto {
   @IsString({ message: 'La categoría debe ser una cadena de texto' })
   @IsOptional()
   categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar';
+
+  @IsString({ message: 'El área debe ser una cadena de texto' })
+  @IsOptional()
+  @MaxLength(100, { message: 'El área no puede exceder 100 caracteres' })
+  area?: string;
 }
 

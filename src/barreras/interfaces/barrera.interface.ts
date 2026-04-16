@@ -16,5 +16,6 @@ export interface ConfiguracionBarrera {
   tipoBateria?: '24V' | '48V'; // Define umbrales de alerta para reporte de energía (precaución/crítico)
   tipoDispositivo?: 'RPI' | 'PLC_S' | 'PLC_N' | 'DWORD'; // Tipo de dispositivo de entrada (energía)
   categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar'; // Categoría de la barrera (sin_asignar = no asignada)
+  area?: string; // Área de agrupación visual (ej: Patio Norte)
 }
 

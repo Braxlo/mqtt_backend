@@ -66,6 +66,9 @@ export class Barrera {
   @Column({ type: 'varchar', length: 50, nullable: true })
   categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar';
 
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  area?: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

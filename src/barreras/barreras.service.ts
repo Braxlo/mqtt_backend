@@ -80,6 +80,22 @@ export class BarrerasService implements OnModuleInit {
         `);
         this.logger.log('Columna comando_enclavar_arriba_off creada en barreras.');
       }
+
+      const area = await this.barreraRepository.query(`
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'barreras'
+          AND column_name = 'area'
+      `);
+      if (area.length === 0) {
+        this.logger.log('Columna area no existe en barreras. Creando columna...');
+        await this.barreraRepository.query(`
+          ALTER TABLE barreras
+          ADD COLUMN area VARCHAR(100) NULL
+        `);
+        this.logger.log('Columna area creada en barreras.');
+      }
     } catch (error) {
       this.logger.error(`Error asegurando columna tipoDispositivo en barreras: ${error.message}`);
     }
@@ -107,6 +123,7 @@ export class BarrerasService implements OnModuleInit {
       tipoBateria: b.tipoBateria || '48V',
       tipoDispositivo: b.tipoDispositivo || 'PLC_S',
       categoria: b.categoria ?? 'sin_asignar',
+      area: b.area ?? '',
     }));
   }
 
@@ -133,6 +150,7 @@ export class BarrerasService implements OnModuleInit {
       tipoBateria: barrera.tipoBateria || '48V',
       tipoDispositivo: barrera.tipoDispositivo || 'PLC_S',
       categoria: barrera.categoria ?? 'sin_asignar',
+      area: barrera.area ?? '',
     };
   }
 
@@ -163,6 +181,7 @@ export class BarrerasService implements OnModuleInit {
       tipoBateria: savedBarrera.tipoBateria || '48V',
       tipoDispositivo: savedBarrera.tipoDispositivo || 'PLC_S',
       categoria: savedBarrera.categoria ?? 'sin_asignar',
+      area: savedBarrera.area ?? '',
     };
   }
 
@@ -197,6 +216,7 @@ export class BarrerasService implements OnModuleInit {
       tipoBateria: updatedBarrera.tipoBateria || '48V',
       tipoDispositivo: updatedBarrera.tipoDispositivo || 'PLC_S',
       categoria: updatedBarrera.categoria ?? 'sin_asignar',
+      area: updatedBarrera.area ?? '',
     };
   }
 
