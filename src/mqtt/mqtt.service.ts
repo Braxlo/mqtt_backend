@@ -1532,6 +1532,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       if (!nums.length) return null;
       return nums.reduce((a, b) => a + b, 0) / nums.length;
     };
+    const sumVals = (vals: Array<number | undefined>) => {
+      const nums = vals.filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
+      if (!nums.length) return null;
+      return nums.reduce((a, b) => a + b, 0);
+    };
     const meanPotenciaBateriaW = (regs: typeof registros): number | null => {
       const products: number[] = [];
       for (const r of regs) {
@@ -1540,6 +1545,27 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         }
       }
       return mean(products);
+    };
+    /** Igual que en frontend `calcularSeccionDiaTurno`: VS/VB/LV = media; CS/SW/CB/LC/LP = suma; BW = suma de (VB×CB). */
+    const metricasDiaTurno = (regs: typeof registros) => {
+      const VS = mean(regs.map((r) => r.VS));
+      const VB = mean(regs.map((r) => r.VB));
+      const LV = mean(regs.map((r) => r.LV));
+      const CS = sumVals(regs.map((r) => r.CS));
+      const SW = sumVals(regs.map((r) => r.SW));
+      const CB = sumVals(regs.map((r) => r.CB));
+      const LC = sumVals(regs.map((r) => r.LC));
+      const LP = sumVals(regs.map((r) => r.LP));
+      let bwSum = 0;
+      let bwN = 0;
+      for (const r of regs) {
+        if (r.VB != null && r.CB != null && !Number.isNaN(r.VB) && !Number.isNaN(r.CB)) {
+          bwSum += r.VB * r.CB;
+          bwN += 1;
+        }
+      }
+      const BW = bwN > 0 ? bwSum : null;
+      return { VS, CS, SW, VB, CB, BW, LV, LC, LP };
     };
     const fmt = (n: number | null | undefined) => (n == null ? '' : Number(n.toFixed(2)));
     const entityName = (options.entityName || 'DISPOSITIVO').toUpperCase();
@@ -1716,10 +1742,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         'Día operacional: la etiqueta YYYY-MM-DD es el día en que empieza el turno a las 08:00. Ventana (como en planta) = 08:00 de ese día → 08:00 del día siguiente (24 h). Ej.: 2026-03-28 = 28/03 08:00 → 29/03 08:00. Filtro Desde 2026-03-28 Hasta 2026-03-29 = dos días operativos (28→29 y 29→30).',
       ],
       [
-        'Promedios y la misma ventana: el promedio del día, cada fila horaria (24), turno día (08:00–20:00 h) y turno noche (20:00–08:00 h) usan solo muestras dentro de esa ventana 08:00→08:00 del día etiqueta — no el día calendario 00:00–24:00. Los "promedios generales" del periodo (hojas Resumen/Datos) son la media de todas las muestras incluidas en el filtro de exportación.',
+        'Ventana 08:00→08:00: las filas horarias (24) siguen siendo la media por hora de reloj. En "Promedios diarios" y "Promedios por turno", VS/VB/LV = media de muestras; CS/SW/CB/LC/LP = sumatoria; BW = suma de (VB×CB) por muestra — alineado con la pantalla. Los "promedios generales" del periodo (hojas Resumen/Datos) siguen siendo la media de todas las muestras del filtro.',
       ],
       [
-        'BW (potencia batería): media de (VB×CB) en cada muestra del grupo (hora o día), no (media VB)×(media CB). Coherente con la pantalla Promedios.',
+        'BW (potencia batería): en cada fila horaria = media de (VB×CB) por muestra en esa hora. En agregados de día y turno (hojas Promedios diarios / Promedios por turno) = suma de (VB×CB) por muestra del tramo, coherente con la pantalla.',
       ],
       [
         'Promedio del día: muestras en la ventana 08:00 del día de la etiqueta → 08:00 del día siguiente. Ej.: 2026-03-28 = 28/03 08:00 → 29/03 08:00.',
@@ -1962,29 +1988,21 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           LPP: '',
         };
       }
-      const VS = mean(arr.map((r) => r.VS));
-      const CS = mean(arr.map((r) => r.CS));
-      const SW = mean(arr.map((r) => r.SW));
-      const VB = mean(arr.map((r) => r.VB));
-      const CB = mean(arr.map((r) => r.CB));
-      const BW = meanPotenciaBateriaW(arr);
-      const LV = mean(arr.map((r) => r.LV));
-      const LC = mean(arr.map((r) => r.LC));
-      const LP = mean(arr.map((r) => r.LP));
+      const m = metricasDiaTurno(arr);
       return {
         Fecha: d,
         Ventana: ventana,
         Estado: 'OK',
         Registros: arr.length,
-        VSP: fmt(VS),
-        CSP: fmt(CS),
-        SWP: fmt(SW),
-        VBP: fmt(VB),
-        CBP: fmt(CB),
-        BWP: BW != null ? fmt(BW) : '',
-        LVP: fmt(LV),
-        LCP: fmt(LC),
-        LPP: fmt(LP),
+        VSP: fmt(m.VS),
+        CSP: fmt(m.CS),
+        SWP: fmt(m.SW),
+        VBP: fmt(m.VB),
+        CBP: fmt(m.CB),
+        BWP: m.BW != null ? fmt(m.BW) : '',
+        LVP: fmt(m.LV),
+        LCP: fmt(m.LC),
+        LPP: fmt(m.LP),
       };
     });
     promDiarios.addRows([
@@ -2001,7 +2019,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       ['Promedio LP general', fmt(promedioLP)],
       [],
       [
-        'PROMEDIOS DIARIOS: media de todas las muestras en la ventana (08:00 del día etiqueta → 08:00 del día siguiente). Ej.: 2026-03-28 = 28/03 08:00 → 29/03 08:00.',
+        'PROMEDIOS DIARIOS (ventana 08:00 del día etiqueta → 08:00 del día siguiente): VS, VB y LV = media aritmética; CS, SW, CB, LC y LP = sumatoria de muestras; BW = suma de (VB×CB) por muestra. Alineado con la pantalla Promedios.',
       ],
       [
         'Etiqueta día',
@@ -2024,6 +2042,114 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         r.Fecha,
         r.Ventana,
         r.Estado,
+        r.Registros,
+        r.VSP,
+        r.CSP,
+        r.SWP,
+        r.VBP,
+        r.CBP,
+        r.BWP,
+        r.LVP,
+        r.LCP,
+        r.LPP,
+      ]),
+    );
+
+    const filaTurnoVacía = (d: string, ventana: string, turnoLabel: string) => ({
+      Fecha: d,
+      Ventana: ventana,
+      Turno: turnoLabel,
+      Registros: 0,
+      VSP: '',
+      CSP: '',
+      SWP: '',
+      VBP: '',
+      CBP: '',
+      BWP: '',
+      LVP: '',
+      LCP: '',
+      LPP: '',
+    });
+    const filaTurnoDesdeRegs = (
+      d: string,
+      ventana: string,
+      turnoLabel: string,
+      regs: typeof registros,
+    ) => {
+      if (regs.length === 0) return filaTurnoVacía(d, ventana, turnoLabel);
+      const m = metricasDiaTurno(regs);
+      return {
+        Fecha: d,
+        Ventana: ventana,
+        Turno: turnoLabel,
+        Registros: regs.length,
+        VSP: fmt(m.VS),
+        CSP: fmt(m.CS),
+        SWP: fmt(m.SW),
+        VBP: fmt(m.VB),
+        CBP: fmt(m.CB),
+        BWP: m.BW != null ? fmt(m.BW) : '',
+        LVP: fmt(m.LV),
+        LCP: fmt(m.LC),
+        LPP: fmt(m.LP),
+      };
+    };
+    const turnoRows: ReturnType<typeof filaTurnoDesdeRegs>[] = [];
+    diasOp.forEach((d) => {
+      const arr = opsDiaMap.get(d) ?? [];
+      const ventana = formatoVentanaOperativaCorta(d);
+      if (arr.length === 0) {
+        turnoRows.push(filaTurnoVacía(d, ventana, 'Turno día (08:00–20:00)'));
+        turnoRows.push(filaTurnoVacía(d, ventana, 'Turno noche (20:00–08:00)'));
+        return;
+      }
+      const diaRegs = arr.filter((r) => {
+        const h = getHourChile(new Date(r.timestamp));
+        return !Number.isNaN(h) && h >= 8 && h < 20;
+      });
+      const nocheRegs = arr.filter((r) => {
+        const h = getHourChile(new Date(r.timestamp));
+        return !Number.isNaN(h) && (h >= 20 || h < 8);
+      });
+      turnoRows.push(filaTurnoDesdeRegs(d, ventana, 'Turno día (08:00–20:00)', diaRegs));
+      turnoRows.push(filaTurnoDesdeRegs(d, ventana, 'Turno noche (20:00–08:00)', nocheRegs));
+    });
+
+    const promTurnos = wb.addWorksheet('Promedios por turno');
+    promTurnos.mergeCells('A1:M1');
+    promTurnos.getCell('A1').value =
+      'PROMEDIOS POR TURNO (misma ventana 08:00→08:00 que el día operacional): día 08:00–20:00, noche 20:00–08:00; dos filas por etiqueta';
+    Object.assign(promTurnos.getCell('A1'), titleStyle);
+    promTurnos.addRows([
+      ['ESTADISTICAS RESUMIDAS'],
+      ['Total de registros procesados', registros.length],
+      ['Etiquetas de día en el informe', diasOp.length],
+      ['Filas de datos (2 por cada día operativo listado)', turnoRows.length],
+      [],
+      [
+        'Misma metodología que "Promedios diarios" pero por franja: VS/VB/LV = media; CS/SW/CB/LC/LP = sumatoria; BW = suma de (VB×CB) por muestra.',
+      ],
+      [
+        'Etiqueta día',
+        'Ventana operativa',
+        'Turno',
+        'Registros',
+        'VSp',
+        'CSp',
+        'SWp',
+        'VBp',
+        'CBp',
+        'BW',
+        'LVp',
+        'LCp',
+        'LPp',
+      ],
+    ]);
+    turnoRows.forEach((r) =>
+      promTurnos.addRow([
+        r.Fecha,
+        r.Ventana,
+        r.Turno,
         r.Registros,
         r.VSP,
         r.CSP,
@@ -2197,6 +2323,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       typeof v === 'string' &&
       (v.includes('ESTADISTICAS') ||
         v.includes('PROMEDIOS') ||
+        v.includes('PROMEDIOS POR TURNO') ||
         v.includes('INFORMACION GENERAL') ||
         v.includes('DATOS ORIGINALES') ||
         v.includes('ANOMALIAS DETECTADAS') ||
