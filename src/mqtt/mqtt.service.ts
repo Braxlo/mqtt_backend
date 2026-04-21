@@ -1527,12 +1527,12 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       .filter((r): r is NonNullable<typeof r> => !!r);
     registros.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-    const mean = (vals: Array<number | undefined>) => {
+    const mean = (vals: Array<number | undefined | null>) => {
       const nums = vals.filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
       if (!nums.length) return null;
       return nums.reduce((a, b) => a + b, 0) / nums.length;
     };
-    const sumVals = (vals: Array<number | undefined>) => {
+    const sumVals = (vals: Array<number | undefined | null>) => {
       const nums = vals.filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
       if (!nums.length) return null;
       return nums.reduce((a, b) => a + b, 0);
@@ -1546,26 +1546,65 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       }
       return mean(products);
     };
-    /** Igual que en frontend `calcularSeccionDiaTurno`: VS/VB/LV = media; CS/SW/CB/LC/LP = suma; BW = suma de (VB×CB). */
-    const metricasDiaTurno = (regs: typeof registros) => {
-      const VS = mean(regs.map((r) => r.VS));
-      const VB = mean(regs.map((r) => r.VB));
-      const LV = mean(regs.map((r) => r.LV));
-      const CS = sumVals(regs.map((r) => r.CS));
-      const SW = sumVals(regs.map((r) => r.SW));
-      const CB = sumVals(regs.map((r) => r.CB));
-      const LC = sumVals(regs.map((r) => r.LC));
-      const LP = sumVals(regs.map((r) => r.LP));
-      let bwSum = 0;
-      let bwN = 0;
-      for (const r of regs) {
-        if (r.VB != null && r.CB != null && !Number.isNaN(r.VB) && !Number.isNaN(r.CB)) {
-          bwSum += r.VB * r.CB;
-          bwN += 1;
-        }
+    /** Misma fila que la hoja de promedios horarios (media por muestra en la hora; BW = media de VB×CB). */
+    const metricasHoraComoEnHojaHoraria = (arr: typeof registros) => ({
+      VS: mean(arr.map((r) => r.VS)),
+      CS: mean(arr.map((r) => r.CS)),
+      SW: mean(arr.map((r) => r.SW)),
+      VB: mean(arr.map((r) => r.VB)),
+      CB: mean(arr.map((r) => r.CB)),
+      LV: mean(arr.map((r) => r.LV)),
+      LC: mean(arr.map((r) => r.LC)),
+      LP: mean(arr.map((r) => r.LP)),
+      BW: meanPotenciaBateriaW(arr),
+    });
+    type SeccionHora = ReturnType<typeof metricasHoraComoEnHojaHoraria>;
+    /**
+     * Promedio día / turno = agregado de los valores **por hora** (no suma de todas las muestras):
+     * VS/VB/LV = media de las medias horarias; CS/SW/CB/LC/LP/BW = suma de las medias horarias.
+     * Alineado con `agregadoDiaTurnoDesdePromediosHora` en frontend.
+     */
+    const metricasDiaTurnoDesdeSeccionesHorarias = (secciones: SeccionHora[]) => {
+      if (!secciones.length) {
+        return {
+          VS: null as number | null,
+          CS: null as number | null,
+          SW: null as number | null,
+          VB: null as number | null,
+          CB: null as number | null,
+          LV: null as number | null,
+          LC: null as number | null,
+          LP: null as number | null,
+          BW: null as number | null,
+        };
       }
-      const BW = bwN > 0 ? bwSum : null;
-      return { VS, CS, SW, VB, CB, BW, LV, LC, LP };
+      return {
+        VS: mean(secciones.map((s) => s.VS)),
+        VB: mean(secciones.map((s) => s.VB)),
+        LV: mean(secciones.map((s) => s.LV)),
+        CS: sumVals(secciones.map((s) => s.CS)),
+        SW: sumVals(secciones.map((s) => s.SW)),
+        CB: sumVals(secciones.map((s) => s.CB)),
+        LC: sumVals(secciones.map((s) => s.LC)),
+        LP: sumVals(secciones.map((s) => s.LP)),
+        BW: sumVals(secciones.map((s) => s.BW)),
+      };
+    };
+    const seccionesHorariasDesdeRegs = (regs: typeof registros): SeccionHora[] => {
+      const hm = new Map<number, typeof registros>();
+      regs.forEach((r) => {
+        const h = getHourChile(new Date(r.timestamp));
+        if (Number.isNaN(h)) return;
+        if (!hm.has(h)) hm.set(h, []);
+        hm.get(h)!.push(r);
+      });
+      const out: SeccionHora[] = [];
+      for (let h = 0; h < 24; h++) {
+        const arr = hm.get(h) ?? [];
+        if (arr.length === 0) continue;
+        out.push(metricasHoraComoEnHojaHoraria(arr));
+      }
+      return out;
     };
     const fmt = (n: number | null | undefined) => (n == null ? '' : Number(n.toFixed(2)));
     const entityName = (options.entityName || 'DISPOSITIVO').toUpperCase();
@@ -1742,10 +1781,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         'Día operacional: la etiqueta YYYY-MM-DD es el día en que empieza el turno a las 08:00. Ventana (como en planta) = 08:00 de ese día → 08:00 del día siguiente (24 h). Ej.: 2026-03-28 = 28/03 08:00 → 29/03 08:00. Filtro Desde 2026-03-28 Hasta 2026-03-29 = dos días operativos (28→29 y 29→30).',
       ],
       [
-        'Ventana 08:00→08:00: las filas horarias (24) siguen siendo la media por hora de reloj. En "Promedios diarios" y "Promedios por turno", VS/VB/LV = media de muestras; CS/SW/CB/LC/LP = sumatoria; BW = suma de (VB×CB) por muestra — alineado con la pantalla. Los "promedios generales" del periodo (hojas Resumen/Datos) siguen siendo la media de todas las muestras del filtro.',
+        'Ventana 08:00→08:00: las filas horarias (24) son la media por hora de reloj. "Promedios diarios" y "Promedios por turno" se calculan **a partir de esas medias horarias**: VS/VB/LV = media de los valores horarios; CS/SW/CB/LC/LP/BW = **suma** de los valores horarios (cada hora aporta el mismo número que en la fila horaria). Los "promedios generales" del periodo (hojas Resumen/Datos) siguen siendo la media de todas las muestras del filtro.',
       ],
       [
-        'BW (potencia batería): en cada fila horaria = media de (VB×CB) por muestra en esa hora. En agregados de día y turno (hojas Promedios diarios / Promedios por turno) = suma de (VB×CB) por muestra del tramo, coherente con la pantalla.',
+        'BW (potencia batería): en cada fila horaria = media de (VB×CB) por muestra en esa hora. En día y turno, BW = suma de esos promedios horarios del tramo (no suma cruzada de todas las muestras).',
       ],
       [
         'Promedio del día: muestras en la ventana 08:00 del día de la etiqueta → 08:00 del día siguiente. Ej.: 2026-03-28 = 28/03 08:00 → 29/03 08:00.',
@@ -1988,7 +2027,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           LPP: '',
         };
       }
-      const m = metricasDiaTurno(arr);
+      const m = metricasDiaTurnoDesdeSeccionesHorarias(seccionesHorariasDesdeRegs(arr));
       return {
         Fecha: d,
         Ventana: ventana,
@@ -2019,7 +2058,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       ['Promedio LP general', fmt(promedioLP)],
       [],
       [
-        'PROMEDIOS DIARIOS (ventana 08:00 del día etiqueta → 08:00 del día siguiente): VS, VB y LV = media aritmética; CS, SW, CB, LC y LP = sumatoria de muestras; BW = suma de (VB×CB) por muestra. Alineado con la pantalla Promedios.',
+        'PROMEDIOS DIARIOS: agregado de las 24 franjas horarias (misma lógica que la hoja horaria). VS/VB/LV = media de los valores horarios; CS/SW/CB/LC/LP/BW = suma de los valores horarios.',
       ],
       [
         'Etiqueta día',
@@ -2077,7 +2116,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       regs: typeof registros,
     ) => {
       if (regs.length === 0) return filaTurnoVacía(d, ventana, turnoLabel);
-      const m = metricasDiaTurno(regs);
+      const m = metricasDiaTurnoDesdeSeccionesHorarias(seccionesHorariasDesdeRegs(regs));
       return {
         Fecha: d,
         Ventana: ventana,
@@ -2127,7 +2166,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       ['Filas de datos (2 por cada día operativo listado)', turnoRows.length],
       [],
       [
-        'Misma metodología que "Promedios diarios" pero por franja: VS/VB/LV = media; CS/SW/CB/LC/LP = sumatoria; BW = suma de (VB×CB) por muestra.',
+        'Misma metodología que "Promedios diarios", solo con horas del turno: cada magnitud horaria es la de la hoja "Promedios horarios"; luego VS/VB/LV = media de esas horas y el resto = suma.',
       ],
       [
         'Etiqueta día',
