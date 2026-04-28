@@ -48,8 +48,43 @@ export class LetrerosService implements OnModuleInit {
       } else {
         this.logger.debug('Columna orden ya existe en letreros.');
       }
+
+      const extraColumns: { name: string; ddl: string }[] = [
+        {
+          name: 'urlCamara',
+          ddl: `ALTER TABLE letreros ADD COLUMN "urlCamara" VARCHAR(1000) NULL DEFAULT ''`,
+        },
+        {
+          name: 'comandoEncender',
+          ddl: `ALTER TABLE letreros ADD COLUMN "comandoEncender" VARCHAR(255) NOT NULL DEFAULT 'ENCENDER'`,
+        },
+        {
+          name: 'comandoDuracionTemplate',
+          ddl: `ALTER TABLE letreros ADD COLUMN "comandoDuracionTemplate" VARCHAR(255) NOT NULL DEFAULT 'SEGUNDOS:{segundos}'`,
+        },
+        {
+          name: 'duracionDefaultSegundos',
+          ddl: `ALTER TABLE letreros ADD COLUMN "duracionDefaultSegundos" INTEGER NOT NULL DEFAULT 60`,
+        },
+      ];
+      for (const col of extraColumns) {
+        const colCheck = await this.letreroRepository.query(
+          `
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'letreros'
+            AND column_name = $1
+        `,
+          [col.name],
+        );
+        if (colCheck.length === 0) {
+          this.logger.log(`Columna ${col.name} no existe en letreros. Creando columna...`);
+          await this.letreroRepository.query(col.ddl);
+        }
+      }
     } catch (error) {
-      this.logger.error(`Error asegurando columna orden en letreros: ${error.message}`);
+      this.logger.error(`Error asegurando columnas de letreros: ${error.message}`);
     }
   }
 
@@ -68,6 +103,10 @@ export class LetrerosService implements OnModuleInit {
       tipoDispositivo: l.tipoDispositivo || 'PLC_S',
       tipoBateria: l.tipoBateria || '48V',
       categoria: l.categoria ?? 'sin_asignar',
+      urlCamara: l.urlCamara ?? '',
+      comandoEncender: l.comandoEncender || 'ENCENDER',
+      comandoDuracionTemplate: l.comandoDuracionTemplate || 'SEGUNDOS:{segundos}',
+      duracionDefaultSegundos: l.duracionDefaultSegundos ?? 60,
     }));
   }
 
@@ -86,6 +125,10 @@ export class LetrerosService implements OnModuleInit {
       tipoDispositivo: letrero.tipoDispositivo || 'PLC_S',
       tipoBateria: letrero.tipoBateria || '48V',
       categoria: letrero.categoria ?? 'sin_asignar',
+      urlCamara: letrero.urlCamara ?? '',
+      comandoEncender: letrero.comandoEncender || 'ENCENDER',
+      comandoDuracionTemplate: letrero.comandoDuracionTemplate || 'SEGUNDOS:{segundos}',
+      duracionDefaultSegundos: letrero.duracionDefaultSegundos ?? 60,
     };
   }
 
@@ -101,6 +144,15 @@ export class LetrerosService implements OnModuleInit {
       orden: (createLetreroDto as any).orden ?? 0,
       tipoDispositivo: createLetreroDto.tipoDispositivo || 'PLC_S',
       tipoBateria: createLetreroDto.tipoBateria || '48V',
+      urlCamara: (createLetreroDto.urlCamara || '').trim(),
+      comandoEncender: (createLetreroDto.comandoEncender || 'ENCENDER').trim() || 'ENCENDER',
+      comandoDuracionTemplate:
+        (createLetreroDto.comandoDuracionTemplate || 'SEGUNDOS:{segundos}').trim() || 'SEGUNDOS:{segundos}',
+      duracionDefaultSegundos:
+        Number.isFinite(createLetreroDto.duracionDefaultSegundos as number) &&
+        (createLetreroDto.duracionDefaultSegundos as number) > 0
+          ? Math.round(createLetreroDto.duracionDefaultSegundos as number)
+          : 60,
       categoria: 'letreros', // Siempre se muestra en la página de Letreros
     });
     const savedLetrero = await this.letreroRepository.save(nuevoLetrero);
@@ -113,6 +165,10 @@ export class LetrerosService implements OnModuleInit {
       tipoDispositivo: savedLetrero.tipoDispositivo || 'PLC_S',
       tipoBateria: savedLetrero.tipoBateria || '48V',
       categoria: savedLetrero.categoria ?? 'sin_asignar',
+      urlCamara: savedLetrero.urlCamara ?? '',
+      comandoEncender: savedLetrero.comandoEncender || 'ENCENDER',
+      comandoDuracionTemplate: savedLetrero.comandoDuracionTemplate || 'SEGUNDOS:{segundos}',
+      duracionDefaultSegundos: savedLetrero.duracionDefaultSegundos ?? 60,
     };
   }
 
@@ -135,6 +191,20 @@ export class LetrerosService implements OnModuleInit {
     if (updateLetreroDto.tipoBateria === undefined) {
       letrero.tipoBateria = letrero.tipoBateria || '48V';
     }
+    if (updateLetreroDto.urlCamara !== undefined) {
+      letrero.urlCamara = (updateLetreroDto.urlCamara || '').trim();
+    }
+    if (updateLetreroDto.comandoEncender !== undefined) {
+      letrero.comandoEncender = (updateLetreroDto.comandoEncender || '').trim() || 'ENCENDER';
+    }
+    if (updateLetreroDto.comandoDuracionTemplate !== undefined) {
+      letrero.comandoDuracionTemplate =
+        (updateLetreroDto.comandoDuracionTemplate || '').trim() || 'SEGUNDOS:{segundos}';
+    }
+    if (updateLetreroDto.duracionDefaultSegundos !== undefined) {
+      const v = Number(updateLetreroDto.duracionDefaultSegundos);
+      letrero.duracionDefaultSegundos = Number.isFinite(v) && v > 0 ? Math.round(v) : 60;
+    }
     if ((updateLetreroDto as any).orden === undefined || (updateLetreroDto as any).orden === null) {
       (letrero as any).orden = (letrero as any).orden ?? 0;
     }
@@ -149,6 +219,10 @@ export class LetrerosService implements OnModuleInit {
       tipoDispositivo: updatedLetrero.tipoDispositivo || 'PLC_S',
       tipoBateria: updatedLetrero.tipoBateria || '48V',
       categoria: updatedLetrero.categoria ?? 'sin_asignar',
+      urlCamara: updatedLetrero.urlCamara ?? '',
+      comandoEncender: updatedLetrero.comandoEncender || 'ENCENDER',
+      comandoDuracionTemplate: updatedLetrero.comandoDuracionTemplate || 'SEGUNDOS:{segundos}',
+      duracionDefaultSegundos: updatedLetrero.duracionDefaultSegundos ?? 60,
     };
   }
 

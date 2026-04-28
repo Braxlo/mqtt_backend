@@ -42,6 +42,18 @@ export class Letrero {
   @Column({ type: 'int', default: 0 })
   orden: number;
 
+  @Column({ type: 'varchar', length: 1000, nullable: true, default: '' })
+  urlCamara?: string;
+
+  @Column({ type: 'varchar', length: 255, default: 'ENCENDER' })
+  comandoEncender: string;
+
+  @Column({ type: 'varchar', length: 255, default: 'SEGUNDOS:{segundos}' })
+  comandoDuracionTemplate: string;
+
+  @Column({ type: 'int', default: 60 })
+  duracionDefaultSegundos: number;
+
   @Column({ type: 'varchar', length: 50, nullable: true })
   categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar';
 
