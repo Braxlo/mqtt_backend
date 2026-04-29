@@ -68,7 +68,7 @@ export class LetrerosService implements OnModuleInit {
         },
         {
           name: 'comandoDuracionTemplate',
-          ddl: `ALTER TABLE letreros ADD COLUMN "comandoDuracionTemplate" VARCHAR(255) NOT NULL DEFAULT 'HRTW{segundos}'`,
+          ddl: `ALTER TABLE letreros ADD COLUMN "comandoDuracionTemplate" VARCHAR(255) NOT NULL DEFAULT 'HRTW'`,
         },
         {
           name: 'duracionDefaultSegundos',
@@ -115,8 +115,11 @@ export class LetrerosService implements OnModuleInit {
       `);
       await this.letreroRepository.query(`
         UPDATE letreros
-        SET "comandoDuracionTemplate" = 'HRTW{segundos}'
-        WHERE "comandoDuracionTemplate" IS NULL OR TRIM("comandoDuracionTemplate") = '' OR "comandoDuracionTemplate" = 'SEGUNDOS:{segundos}'
+        SET "comandoDuracionTemplate" = 'HRTW'
+        WHERE "comandoDuracionTemplate" IS NULL
+           OR TRIM("comandoDuracionTemplate") = ''
+           OR "comandoDuracionTemplate" = 'SEGUNDOS:{segundos}'
+           OR "comandoDuracionTemplate" = 'HRTW{segundos}'
       `);
       await this.letreroRepository.query(`
         UPDATE letreros
@@ -144,7 +147,7 @@ export class LetrerosService implements OnModuleInit {
       categoria: l.categoria ?? 'sin_asignar',
       urlCamara: l.urlCamara ?? '',
       comandoEncender: l.comandoEncender || 'HRC1',
-      comandoDuracionTemplate: l.comandoDuracionTemplate || 'HRTW{segundos}',
+      comandoDuracionTemplate: l.comandoDuracionTemplate || 'HRTW',
       duracionDefaultSegundos: this.normalizarSegundos(l.duracionDefaultSegundos),
       mostrarEnControl: l.mostrarEnControl ?? true,
       mostrarCamara: l.mostrarCamara ?? true,
@@ -170,7 +173,7 @@ export class LetrerosService implements OnModuleInit {
       categoria: letrero.categoria ?? 'sin_asignar',
       urlCamara: letrero.urlCamara ?? '',
       comandoEncender: letrero.comandoEncender || 'HRC1',
-      comandoDuracionTemplate: letrero.comandoDuracionTemplate || 'HRTW{segundos}',
+      comandoDuracionTemplate: letrero.comandoDuracionTemplate || 'HRTW',
       duracionDefaultSegundos: this.normalizarSegundos(letrero.duracionDefaultSegundos),
       mostrarEnControl: letrero.mostrarEnControl ?? true,
       mostrarCamara: letrero.mostrarCamara ?? true,
@@ -194,7 +197,7 @@ export class LetrerosService implements OnModuleInit {
       urlCamara: (createLetreroDto.urlCamara || '').trim(),
       comandoEncender: (createLetreroDto.comandoEncender || 'HRC1').trim() || 'HRC1',
       comandoDuracionTemplate:
-        (createLetreroDto.comandoDuracionTemplate || 'HRTW{segundos}').trim() || 'HRTW{segundos}',
+        (createLetreroDto.comandoDuracionTemplate || 'HRTW').trim() || 'HRTW',
       duracionDefaultSegundos: this.normalizarSegundos(createLetreroDto.duracionDefaultSegundos),
       mostrarEnControl: createLetreroDto.mostrarEnControl ?? true,
       mostrarCamara: createLetreroDto.mostrarCamara ?? true,
@@ -214,7 +217,7 @@ export class LetrerosService implements OnModuleInit {
       categoria: savedLetrero.categoria ?? 'sin_asignar',
       urlCamara: savedLetrero.urlCamara ?? '',
       comandoEncender: savedLetrero.comandoEncender || 'HRC1',
-      comandoDuracionTemplate: savedLetrero.comandoDuracionTemplate || 'HRTW{segundos}',
+      comandoDuracionTemplate: savedLetrero.comandoDuracionTemplate || 'HRTW',
       duracionDefaultSegundos: this.normalizarSegundos(savedLetrero.duracionDefaultSegundos),
       mostrarEnControl: savedLetrero.mostrarEnControl ?? true,
       mostrarCamara: savedLetrero.mostrarCamara ?? true,
@@ -250,7 +253,7 @@ export class LetrerosService implements OnModuleInit {
     }
     if (updateLetreroDto.comandoDuracionTemplate !== undefined) {
       letrero.comandoDuracionTemplate =
-        (updateLetreroDto.comandoDuracionTemplate || '').trim() || 'HRTW{segundos}';
+        (updateLetreroDto.comandoDuracionTemplate || '').trim() || 'HRTW';
     }
     if (updateLetreroDto.duracionDefaultSegundos !== undefined) {
       letrero.duracionDefaultSegundos = this.normalizarSegundos(updateLetreroDto.duracionDefaultSegundos);
@@ -283,7 +286,7 @@ export class LetrerosService implements OnModuleInit {
       categoria: updatedLetrero.categoria ?? 'sin_asignar',
       urlCamara: updatedLetrero.urlCamara ?? '',
       comandoEncender: updatedLetrero.comandoEncender || 'HRC1',
-      comandoDuracionTemplate: updatedLetrero.comandoDuracionTemplate || 'HRTW{segundos}',
+      comandoDuracionTemplate: updatedLetrero.comandoDuracionTemplate || 'HRTW',
       duracionDefaultSegundos: this.normalizarSegundos(updatedLetrero.duracionDefaultSegundos),
       mostrarEnControl: updatedLetrero.mostrarEnControl ?? true,
       mostrarCamara: updatedLetrero.mostrarCamara ?? true,

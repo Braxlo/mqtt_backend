@@ -48,7 +48,7 @@ export class Letrero {
   @Column({ type: 'varchar', length: 255, default: 'HRC1' })
   comandoEncender: string;
 
-  @Column({ type: 'varchar', length: 255, default: 'HRTW{segundos}' })
+  @Column({ type: 'varchar', length: 255, default: 'HRTW' })
   comandoDuracionTemplate: string;
 
   @Column({ type: 'int', default: 60 })
