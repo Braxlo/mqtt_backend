@@ -13,11 +13,19 @@ import { UpdateLetreroDto } from './dto/update-letrero.dto';
 @Injectable()
 export class LetrerosService implements OnModuleInit {
   private readonly logger = new Logger(LetrerosService.name);
+  private static readonly MIN_SEGUNDOS = 5;
+  private static readonly MAX_SEGUNDOS = 120;
 
   constructor(
     @InjectRepository(LetreroEntity)
     private letreroRepository: Repository<LetreroEntity>,
   ) {}
+
+  private normalizarSegundos(value: number | undefined): number {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 60;
+    return Math.min(LetrerosService.MAX_SEGUNDOS, Math.max(LetrerosService.MIN_SEGUNDOS, Math.round(n)));
+  }
 
   /**
    * Asegura que la columna orden exista en la tabla letreros.
@@ -56,15 +64,31 @@ export class LetrerosService implements OnModuleInit {
         },
         {
           name: 'comandoEncender',
-          ddl: `ALTER TABLE letreros ADD COLUMN "comandoEncender" VARCHAR(255) NOT NULL DEFAULT 'ENCENDER'`,
+          ddl: `ALTER TABLE letreros ADD COLUMN "comandoEncender" VARCHAR(255) NOT NULL DEFAULT 'HRC1'`,
         },
         {
           name: 'comandoDuracionTemplate',
-          ddl: `ALTER TABLE letreros ADD COLUMN "comandoDuracionTemplate" VARCHAR(255) NOT NULL DEFAULT 'SEGUNDOS:{segundos}'`,
+          ddl: `ALTER TABLE letreros ADD COLUMN "comandoDuracionTemplate" VARCHAR(255) NOT NULL DEFAULT 'HRTW{segundos}'`,
         },
         {
           name: 'duracionDefaultSegundos',
           ddl: `ALTER TABLE letreros ADD COLUMN "duracionDefaultSegundos" INTEGER NOT NULL DEFAULT 60`,
+        },
+        {
+          name: 'mostrarEnControl',
+          ddl: `ALTER TABLE letreros ADD COLUMN "mostrarEnControl" BOOLEAN NOT NULL DEFAULT true`,
+        },
+        {
+          name: 'mostrarCamara',
+          ddl: `ALTER TABLE letreros ADD COLUMN "mostrarCamara" BOOLEAN NOT NULL DEFAULT true`,
+        },
+        {
+          name: 'mostrarBotonEncender',
+          ddl: `ALTER TABLE letreros ADD COLUMN "mostrarBotonEncender" BOOLEAN NOT NULL DEFAULT true`,
+        },
+        {
+          name: 'mostrarControlSegundos',
+          ddl: `ALTER TABLE letreros ADD COLUMN "mostrarControlSegundos" BOOLEAN NOT NULL DEFAULT true`,
         },
       ];
       for (const col of extraColumns) {
@@ -83,6 +107,21 @@ export class LetrerosService implements OnModuleInit {
           await this.letreroRepository.query(col.ddl);
         }
       }
+
+      await this.letreroRepository.query(`
+        UPDATE letreros
+        SET "comandoEncender" = 'HRC1'
+        WHERE "comandoEncender" IS NULL OR TRIM("comandoEncender") = '' OR "comandoEncender" = 'ENCENDER'
+      `);
+      await this.letreroRepository.query(`
+        UPDATE letreros
+        SET "comandoDuracionTemplate" = 'HRTW{segundos}'
+        WHERE "comandoDuracionTemplate" IS NULL OR TRIM("comandoDuracionTemplate") = '' OR "comandoDuracionTemplate" = 'SEGUNDOS:{segundos}'
+      `);
+      await this.letreroRepository.query(`
+        UPDATE letreros
+        SET "duracionDefaultSegundos" = LEAST(120, GREATEST(5, COALESCE("duracionDefaultSegundos", 60)))
+      `);
     } catch (error) {
       this.logger.error(`Error asegurando columnas de letreros: ${error.message}`);
     }
@@ -104,9 +143,13 @@ export class LetrerosService implements OnModuleInit {
       tipoBateria: l.tipoBateria || '48V',
       categoria: l.categoria ?? 'sin_asignar',
       urlCamara: l.urlCamara ?? '',
-      comandoEncender: l.comandoEncender || 'ENCENDER',
-      comandoDuracionTemplate: l.comandoDuracionTemplate || 'SEGUNDOS:{segundos}',
-      duracionDefaultSegundos: l.duracionDefaultSegundos ?? 60,
+      comandoEncender: l.comandoEncender || 'HRC1',
+      comandoDuracionTemplate: l.comandoDuracionTemplate || 'HRTW{segundos}',
+      duracionDefaultSegundos: this.normalizarSegundos(l.duracionDefaultSegundos),
+      mostrarEnControl: l.mostrarEnControl ?? true,
+      mostrarCamara: l.mostrarCamara ?? true,
+      mostrarBotonEncender: l.mostrarBotonEncender ?? true,
+      mostrarControlSegundos: l.mostrarControlSegundos ?? true,
     }));
   }
 
@@ -126,9 +169,13 @@ export class LetrerosService implements OnModuleInit {
       tipoBateria: letrero.tipoBateria || '48V',
       categoria: letrero.categoria ?? 'sin_asignar',
       urlCamara: letrero.urlCamara ?? '',
-      comandoEncender: letrero.comandoEncender || 'ENCENDER',
-      comandoDuracionTemplate: letrero.comandoDuracionTemplate || 'SEGUNDOS:{segundos}',
-      duracionDefaultSegundos: letrero.duracionDefaultSegundos ?? 60,
+      comandoEncender: letrero.comandoEncender || 'HRC1',
+      comandoDuracionTemplate: letrero.comandoDuracionTemplate || 'HRTW{segundos}',
+      duracionDefaultSegundos: this.normalizarSegundos(letrero.duracionDefaultSegundos),
+      mostrarEnControl: letrero.mostrarEnControl ?? true,
+      mostrarCamara: letrero.mostrarCamara ?? true,
+      mostrarBotonEncender: letrero.mostrarBotonEncender ?? true,
+      mostrarControlSegundos: letrero.mostrarControlSegundos ?? true,
     };
   }
 
@@ -145,14 +192,14 @@ export class LetrerosService implements OnModuleInit {
       tipoDispositivo: createLetreroDto.tipoDispositivo || 'PLC_S',
       tipoBateria: createLetreroDto.tipoBateria || '48V',
       urlCamara: (createLetreroDto.urlCamara || '').trim(),
-      comandoEncender: (createLetreroDto.comandoEncender || 'ENCENDER').trim() || 'ENCENDER',
+      comandoEncender: (createLetreroDto.comandoEncender || 'HRC1').trim() || 'HRC1',
       comandoDuracionTemplate:
-        (createLetreroDto.comandoDuracionTemplate || 'SEGUNDOS:{segundos}').trim() || 'SEGUNDOS:{segundos}',
-      duracionDefaultSegundos:
-        Number.isFinite(createLetreroDto.duracionDefaultSegundos as number) &&
-        (createLetreroDto.duracionDefaultSegundos as number) > 0
-          ? Math.round(createLetreroDto.duracionDefaultSegundos as number)
-          : 60,
+        (createLetreroDto.comandoDuracionTemplate || 'HRTW{segundos}').trim() || 'HRTW{segundos}',
+      duracionDefaultSegundos: this.normalizarSegundos(createLetreroDto.duracionDefaultSegundos),
+      mostrarEnControl: createLetreroDto.mostrarEnControl ?? true,
+      mostrarCamara: createLetreroDto.mostrarCamara ?? true,
+      mostrarBotonEncender: createLetreroDto.mostrarBotonEncender ?? true,
+      mostrarControlSegundos: createLetreroDto.mostrarControlSegundos ?? true,
       categoria: 'letreros', // Siempre se muestra en la página de Letreros
     });
     const savedLetrero = await this.letreroRepository.save(nuevoLetrero);
@@ -166,9 +213,13 @@ export class LetrerosService implements OnModuleInit {
       tipoBateria: savedLetrero.tipoBateria || '48V',
       categoria: savedLetrero.categoria ?? 'sin_asignar',
       urlCamara: savedLetrero.urlCamara ?? '',
-      comandoEncender: savedLetrero.comandoEncender || 'ENCENDER',
-      comandoDuracionTemplate: savedLetrero.comandoDuracionTemplate || 'SEGUNDOS:{segundos}',
-      duracionDefaultSegundos: savedLetrero.duracionDefaultSegundos ?? 60,
+      comandoEncender: savedLetrero.comandoEncender || 'HRC1',
+      comandoDuracionTemplate: savedLetrero.comandoDuracionTemplate || 'HRTW{segundos}',
+      duracionDefaultSegundos: this.normalizarSegundos(savedLetrero.duracionDefaultSegundos),
+      mostrarEnControl: savedLetrero.mostrarEnControl ?? true,
+      mostrarCamara: savedLetrero.mostrarCamara ?? true,
+      mostrarBotonEncender: savedLetrero.mostrarBotonEncender ?? true,
+      mostrarControlSegundos: savedLetrero.mostrarControlSegundos ?? true,
     };
   }
 
@@ -195,15 +246,26 @@ export class LetrerosService implements OnModuleInit {
       letrero.urlCamara = (updateLetreroDto.urlCamara || '').trim();
     }
     if (updateLetreroDto.comandoEncender !== undefined) {
-      letrero.comandoEncender = (updateLetreroDto.comandoEncender || '').trim() || 'ENCENDER';
+      letrero.comandoEncender = (updateLetreroDto.comandoEncender || '').trim() || 'HRC1';
     }
     if (updateLetreroDto.comandoDuracionTemplate !== undefined) {
       letrero.comandoDuracionTemplate =
-        (updateLetreroDto.comandoDuracionTemplate || '').trim() || 'SEGUNDOS:{segundos}';
+        (updateLetreroDto.comandoDuracionTemplate || '').trim() || 'HRTW{segundos}';
     }
     if (updateLetreroDto.duracionDefaultSegundos !== undefined) {
-      const v = Number(updateLetreroDto.duracionDefaultSegundos);
-      letrero.duracionDefaultSegundos = Number.isFinite(v) && v > 0 ? Math.round(v) : 60;
+      letrero.duracionDefaultSegundos = this.normalizarSegundos(updateLetreroDto.duracionDefaultSegundos);
+    }
+    if (updateLetreroDto.mostrarEnControl !== undefined) {
+      letrero.mostrarEnControl = updateLetreroDto.mostrarEnControl;
+    }
+    if (updateLetreroDto.mostrarCamara !== undefined) {
+      letrero.mostrarCamara = updateLetreroDto.mostrarCamara;
+    }
+    if (updateLetreroDto.mostrarBotonEncender !== undefined) {
+      letrero.mostrarBotonEncender = updateLetreroDto.mostrarBotonEncender;
+    }
+    if (updateLetreroDto.mostrarControlSegundos !== undefined) {
+      letrero.mostrarControlSegundos = updateLetreroDto.mostrarControlSegundos;
     }
     if ((updateLetreroDto as any).orden === undefined || (updateLetreroDto as any).orden === null) {
       (letrero as any).orden = (letrero as any).orden ?? 0;
@@ -220,9 +282,13 @@ export class LetrerosService implements OnModuleInit {
       tipoBateria: updatedLetrero.tipoBateria || '48V',
       categoria: updatedLetrero.categoria ?? 'sin_asignar',
       urlCamara: updatedLetrero.urlCamara ?? '',
-      comandoEncender: updatedLetrero.comandoEncender || 'ENCENDER',
-      comandoDuracionTemplate: updatedLetrero.comandoDuracionTemplate || 'SEGUNDOS:{segundos}',
-      duracionDefaultSegundos: updatedLetrero.duracionDefaultSegundos ?? 60,
+      comandoEncender: updatedLetrero.comandoEncender || 'HRC1',
+      comandoDuracionTemplate: updatedLetrero.comandoDuracionTemplate || 'HRTW{segundos}',
+      duracionDefaultSegundos: this.normalizarSegundos(updatedLetrero.duracionDefaultSegundos),
+      mostrarEnControl: updatedLetrero.mostrarEnControl ?? true,
+      mostrarCamara: updatedLetrero.mostrarCamara ?? true,
+      mostrarBotonEncender: updatedLetrero.mostrarBotonEncender ?? true,
+      mostrarControlSegundos: updatedLetrero.mostrarControlSegundos ?? true,
     };
   }
 

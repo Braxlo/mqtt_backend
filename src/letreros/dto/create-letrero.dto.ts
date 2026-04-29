@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, MaxLength, MinLength, IsOptional, IsIn, IsInt, Min } from 'class-validator';
+import { IsString, IsNotEmpty, MaxLength, MinLength, IsOptional, IsIn, IsInt, Min, Max, IsBoolean } from 'class-validator';
 
 /**
  * DTO para crear un nuevo letrero
@@ -48,6 +48,23 @@ export class CreateLetreroDto {
 
   @IsOptional()
   @IsInt({ message: 'La duración por defecto debe ser un número entero' })
-  @Min(1, { message: 'La duración por defecto debe ser mayor o igual a 1 segundo' })
+  @Min(5, { message: 'La duración por defecto debe ser mayor o igual a 5 segundos' })
+  @Max(120, { message: 'La duración por defecto debe ser menor o igual a 120 segundos' })
   duracionDefaultSegundos?: number;
+
+  @IsOptional()
+  @IsBoolean({ message: 'mostrarEnControl debe ser verdadero o falso' })
+  mostrarEnControl?: boolean;
+
+  @IsOptional()
+  @IsBoolean({ message: 'mostrarCamara debe ser verdadero o falso' })
+  mostrarCamara?: boolean;
+
+  @IsOptional()
+  @IsBoolean({ message: 'mostrarBotonEncender debe ser verdadero o falso' })
+  mostrarBotonEncender?: boolean;
+
+  @IsOptional()
+  @IsBoolean({ message: 'mostrarControlSegundos debe ser verdadero o falso' })
+  mostrarControlSegundos?: boolean;
 }

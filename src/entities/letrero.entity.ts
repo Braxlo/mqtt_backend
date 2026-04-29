@@ -45,14 +45,26 @@ export class Letrero {
   @Column({ type: 'varchar', length: 1000, nullable: true, default: '' })
   urlCamara?: string;
 
-  @Column({ type: 'varchar', length: 255, default: 'ENCENDER' })
+  @Column({ type: 'varchar', length: 255, default: 'HRC1' })
   comandoEncender: string;
 
-  @Column({ type: 'varchar', length: 255, default: 'SEGUNDOS:{segundos}' })
+  @Column({ type: 'varchar', length: 255, default: 'HRTW{segundos}' })
   comandoDuracionTemplate: string;
 
   @Column({ type: 'int', default: 60 })
   duracionDefaultSegundos: number;
+
+  @Column({ type: 'boolean', default: true })
+  mostrarEnControl: boolean;
+
+  @Column({ type: 'boolean', default: true })
+  mostrarCamara: boolean;
+
+  @Column({ type: 'boolean', default: true })
+  mostrarBotonEncender: boolean;
+
+  @Column({ type: 'boolean', default: true })
+  mostrarControlSegundos: boolean;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
   categoria?: 'chancado' | 'luminarias' | 'barreras' | 'letreros' | 'otras_barreras' | 'otros' | 'prueba' | 'sin_asignar';

@@ -13,4 +13,8 @@ export interface ConfiguracionLetrero {
   comandoEncender?: string; // Trama MQTT para encendido
   comandoDuracionTemplate?: string; // Plantilla MQTT para segundos, admite {segundos}
   duracionDefaultSegundos?: number; // Segundos por defecto para encendido
+  mostrarEnControl?: boolean; // Mostrar tarjeta en página Control
+  mostrarCamara?: boolean; // Mostrar bloque de cámara en página Control
+  mostrarBotonEncender?: boolean; // Mostrar botón de encendido en página Control
+  mostrarControlSegundos?: boolean; // Mostrar control de segundos en página Control
 }
